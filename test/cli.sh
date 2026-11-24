@@ -87,6 +87,7 @@ refuses 'a remote is not added twice' 'already a remote named local' pfw remote 
 refuses 'a remote'"'"'s name is plain' 'letters, digits' pfw remote add 'a b' "$repo"
 has 'pull clones it and counts its policies' "$(pfw pull)" '2 policies'
 has 'pull again finds nothing new' "$(pfw pull)" 'up to date'
+has 'pull says where to go next' "$(pfw pull)" 'pfw apply NUMBER'
 refuses 'pull of an unknown remote is refused' 'no such remote' pfw pull nope
 
 # ---- naming a policy --------------------------------------------------------

@@ -15,9 +15,31 @@ export class PolicyError extends Error {
   }
 }
 
+/* Compiling is the slow part of a policy, a few hundred milliseconds for one
+ * with large patterns, and what it yields depends on the source alone. `pfw
+ * ls` asks for every pulled policy each time it runs, and the sources rarely
+ * change between two runs, so each result is kept by its source. Failures
+ * are kept too: a policy that does not compile is just as slow to refuse.
+ * The oldest go first once there are more than a repository or two's worth.
+ */
+const KEPT = 512;
+const compiledBySource = new Map();
+
+function compileOnce(source) {
+  const kept = compiledBySource.get(source);
+  if (kept) return kept;
+  const compiled = compile(source);
+  compiledBySource.set(source, compiled);
+  if (compiledBySource.size > KEPT) compiledBySource.delete(compiledBySource.keys().next().value);
+  return compiled;
+}
+
+// How many sources have been compiled, for a test to see that one was not twice.
+export const compiledCount = () => compiledBySource.size;
+
 export class Policy {
   constructor(name, source) {
-    const compiled = compile(source);
+    const compiled = compileOnce(source);
     if (!compiled.ok) throw new PolicyError(name, compiled.errors);
 
     this.name = name;

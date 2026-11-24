@@ -467,6 +467,9 @@ pull() {
 	# Named on a line of its own: a refusal inside the loop's list would be lost.
 	pulled=$(chosen "${1:-}") || exit 1
 	for each in $pulled; do pull_one "$each"; done
+	# Where to go from here: the policies are on this host now, and none is
+	# enforced until one is applied.
+	[ "$format" = json ] || say "  $(note 'next:') $(name 'pfw ls') $(note 'lists them, numbered;') $(name 'pfw apply NUMBER') $(note 'enforces one')"
 }
 
 # ---- policies ---------------------------------------------------------------
