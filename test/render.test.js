@@ -75,6 +75,25 @@ test("the catalog numbers policies and marks the active one and the broken ones"
   ]);
 });
 
+test("a catalog that was not compiled shows no ticks and no rule counts, and says so", () => {
+  const meta = { description: "Resets crawlers.", cves: [], severity: null, patches: null, tags: ["http"], knobs: { port: "The port to guard." } };
+  const text = catalog({
+    active: "acme:edge/waf.pfc@a1b2c3d",
+    checked: false,
+    entries: [
+      { name: "acme:edge/bots.pfc@a1b2c3d", ok: true, checked: false, rules: [], errors: [], meta, knobs: [{ name: "port", about: "The port to guard.", set: false, unread: true }] },
+      { name: "acme:edge/waf.pfc@a1b2c3d", ok: true, checked: false, rules: [], errors: [] },
+    ],
+  }, plain).split("\n");
+
+  assertEquals(text[1], "  1   acme:edge/bots.pfc ");
+  assertEquals(text[2], "       Resets crawlers.");
+  assert(text.some((line) => /knob\s+port\s+The port to guard\./.test(line)), text.join("\n"));
+  assertEquals(text.find((line) => line.startsWith("▸")), "▸ 2   acme:edge/waf.pfc   active");
+  assert(text.at(-1).startsWith("not compiled: pfw ls --check"));
+  assert(!text.join("\n").includes("✔"));
+});
+
 test("the catalog says when the active policy is from another revision", () => {
   const text = catalog({
     active: "acme:waf.pfc@old1234",

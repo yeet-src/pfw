@@ -1,5 +1,6 @@
-/* Checked policies as the numbered list `pfw ls` prints and `pfw
- * apply` picks from: whether each compiles, and which one is enforcing.
+/* The policies as the numbered list `pfw ls` prints and `pfw apply` picks
+ * from, and which one is enforcing. Checked (`pfw ls --check`), each also
+ * says whether it compiles and how many rules it has.
  */
 import { plural, splitName } from "#/ctl/render/format.js";
 import { shown } from "#/ctl/render/knobs.js";
@@ -8,13 +9,13 @@ import { cell, table } from "#/ctl/render/table.js";
 function detail(p, entry, active) {
   if (!entry.ok) return p.bad(entry.errors.map((e) => (e.line ? `line ${e.line}: ` : "") + e.text).join("; "));
 
-  const rules = p.note(plural(entry.rules.length, "rule"));
+  // Not compiled, so there are no rules to count.
+  const rules = entry.checked === false ? "" : p.note(plural(entry.rules.length, "rule"));
   if (!active) return rules;
   const here = splitName(entry.name).rev;
   const running = splitName(active).rev;
-  return here === running
-    ? `${rules}   ${p.ok("active")}`
-    : `${rules}   ${p.warn(`active at ${running}, this is ${here}`)}`;
+  const state = here === running ? p.ok("active") : p.warn(`active at ${running}, this is ${here}`);
+  return rules ? `${rules}   ${state}` : state;
 }
 
 const SEVERITY_TONE = { critical: "bad", high: "bad", medium: "warn", low: "note" };
@@ -46,7 +47,8 @@ function dials(p, knobs) {
   return table(knobs.map((k) => [
     cell(p.label, "knob"),
     cell(p.name, k.name),
-    cell(k.set ? p.strong : p.value, shown(k)),
+    // A knob read from the comments alone has a purpose and no value yet.
+    cell(k.set ? p.strong : p.value, k.unread ? "" : shown(k)),
     ...(anySet ? [cell(p.warn, k.set ? "set" : "")] : []),
     cell(p.note, k.about ?? ""),
   ]), "");
@@ -63,7 +65,7 @@ function groupOf(name) {
 /* The list in groups, a heading a directory. The numbers are the policies'
  * places in the whole list, so they hold when the list is filtered.
  */
-export function catalog({ entries, active, total = entries.length, filtered = false }, p) {
+export function catalog({ entries, active, total = entries.length, filtered = false, checked = true }, p) {
   if (total === 0) return p.warn("no policies: pfw remote add NAME URL, then pfw pull");
   if (entries.length === 0) return p.warn(`none of the ${total} policies match`);
 
@@ -91,7 +93,7 @@ export function catalog({ entries, active, total = entries.length, filtered = fa
     lines.push([
       isActive ? p.ok("▸") : " ",
       p.label(String(entry.number ?? i + 1).padStart(digits)),
-      entry.ok ? p.ok("✔") : p.bad("✘"),
+      entry.checked === false ? " " : entry.ok ? p.ok("✔") : p.bad("✘"),
       (isActive ? p.strong : p.name)(source.padEnd(width)),
       ` ${detail(p, entry, isActive ? active : null)}`,
     ].join(" "));
@@ -99,5 +101,6 @@ export function catalog({ entries, active, total = entries.length, filtered = fa
   });
 
   if (filtered) lines.push("", p.note(`${entries.length} of ${total} policies`));
+  if (!checked) lines.push("", p.note("not compiled: pfw ls --check says whether each one is sound, and pfw apply checks the one it is given"));
   return lines.join("\n");
 }
