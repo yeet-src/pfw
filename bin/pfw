@@ -869,6 +869,8 @@ finding() {
 	[ -z "${4:-}" ] || printf '      %*s%s\n' 12 '' "$(note "$4")"
 }
 good() { finding "$(ok '✔')" "$1" "$(note "$2")"; }
+# Not there yet, and about to be: a step that has not happened, not a fault.
+pending() { finding "$(label '○')" "$1" "$(note "$2")" "${3:-}"; }
 warned() {
 	warnings=$((warnings + 1))
 	finding "$(warn '▲')" "$1" "$(warn "$2")" "${3:-}"
@@ -969,7 +971,14 @@ doctor() {
 	state=$("$YEET" service get "$PFW_SERVICE" 2>/dev/null | sed -n 's/^Service .*) *//p')
 	case $state in
 	running) good 'service' "$PFW_SERVICE is running" ;;
-	'') failed 'service' "there is no $PFW_SERVICE service" 'pfw up creates it and starts it' ;;
+	'')
+		# The installer runs doctor before it has started anything, to check
+		# the host. A firewall that was never created is then what is next,
+		# not what is wrong, and saying "to fix" of a clean install read as an
+		# error that mended itself a moment later.
+		if [ -n "${PFW_BEFORE_UP:-}" ]; then pending 'service' "not created yet" 'pfw up creates it and starts it'
+		else failed 'service' "there is no $PFW_SERVICE service" 'pfw up creates it and starts it'; fi
+		;;
 	*) failed 'service' "$PFW_SERVICE is $state" 'pfw up starts it' ;;
 	esac
 

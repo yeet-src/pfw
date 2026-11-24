@@ -245,7 +245,9 @@ esac
 
 pfw=$prefix/bin/pfw
 printf '\n'
-"$pfw" doctor || true
+# Before the service exists: doctor is told so, and does not call its
+# absence a fault.
+PFW_BEFORE_UP=1 "$pfw" doctor || true
 printf '\n'
 
 if [ -z "$want_up" ]; then
