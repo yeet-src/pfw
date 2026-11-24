@@ -1,0 +1,16 @@
+name: An idea
+description: Something pfw could do, or do more easily.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task, and where pfw got in the way or left you to do it by hand.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: A command, an option, a page of the docs. A sketch of how you would type it is plenty.

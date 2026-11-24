@@ -134,6 +134,7 @@ State:
 | `pfw_up` | 1 while attached to an interface |
 | `pfw_interface_info{interface,ifindex}` | the interfaces it is attached to |
 | `pfw_shadow` | 1 while in shadow mode |
+| `pfw_trial_pending` | 1 while a change made with `--confirm` waits to be confirmed |
 | `pfw_policy_enforcing` | 1 while a policy is in place |
 | `pfw_policy_info{name,rev,severity,cve}` | the policy in place |
 | `pfw_policy_applied_timestamp_seconds` | when it was applied |
@@ -175,6 +176,12 @@ Health:
 | `pfw_h2_total{event}` | HTTP/2 header blocks; `unresolved`, `truncated` and `failed` are headers not fully read |
 
 ### Worth alerting on
+
+These, as rules ready to load, are in
+[`contrib/prometheus/alerts.yml`](../contrib/prometheus/alerts.yml), with a
+Grafana dashboard beside them in
+[`contrib/grafana/pfw.json`](../contrib/grafana/pfw.json). See
+[`contrib/`](../contrib/README.md).
 
 - `pfw_up == 0` or `yeet_worker_up == 0`: pfw is not filtering.
 - `pfw_policy_enforcing == 0`: no policy is in place.

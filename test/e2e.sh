@@ -11,8 +11,11 @@
 #   E2E_DAEMON_RESTART=yes      also restart yeetd, as a reboot would, and
 #                               check the firewall comes back as it was
 #
-# It changes the firewall on this host, and stops it at the end, so it is for
-# CI and for scratch hosts, never one that is protecting something.
+# It changes the firewall `pfw` drives, and stops it at the end, so it is for
+# CI and for scratch hosts, never one that is protecting something. On a
+# machine with a firewall to leave alone, test/scratch.sh makes one for it:
+#
+#   make scratch
 set -eu
 
 # CI says yes by being CI; anywhere else it has to be asked for.
@@ -25,6 +28,7 @@ set -eu
 ON=${E2E_ON:-lo}
 PORT=80
 OTHER=8080
+METRICS=$(printf '%s\n' "${PFW_URL:-ws://127.0.0.1:9477/ctl}" | sed -e 's|^ws|http|' -e 's|/ctl$|/metrics|')
 
 fail() {
 	printf 'FAIL  %s\n' "$*" >&2
@@ -82,9 +86,13 @@ pfw up
 pfw clear >/dev/null 2>&1 || true
 pfw unshadow >/dev/null
 
+# Onto the interface under test and off whatever it started on, which is
+# given back at the end.
+home=''
 if [ "$ON" != lo ]; then
+	home=$(pfw __complete detach '' | grep -vx "$IFACE" | tr '\n' ' ')
 	pfw attach "$IFACE"
-	pfw detach lo
+	for each in $home; do pfw detach "$each"; done
 fi
 pfw doctor || fail 'pfw doctor found something to fix'
 pfw status | grep -q "on $IFACE" || fail "the firewall is not on $IFACE"
@@ -92,13 +100,61 @@ pfw status | grep -q "on $IFACE" || fail "the firewall is not on $IFACE"
 expect 200 "$PORT" '' 'no policy: a browser gets the page'
 expect 200 "$PORT" GPTBot 'no policy: a crawler gets the page'
 
-pfw pull
+# `pfw setup` does the first steps of the guide: the interface, the pull,
+# the policy and its knob, and leaves it rehearsing.
+pfw setup --yes --iface "$IFACE" --policy rules:http/crawlers.pfc --knob "port=$PORT"
 pfw ls | grep -q 'rules:http/crawlers.pfc' || fail 'the public rules are not listed'
-pfw apply rules:http/crawlers.pfc
+pfw status | grep -q "on $IFACE   shadow mode" || fail 'setup did not leave the firewall rehearsing'
+pfw status | grep -q "port $PORT" || fail 'setup did not set the knob'
+expect 200 "$PORT" GPTBot 'after setup: rehearsing, a crawler gets the page'
+pfw status | grep -q 'would block [1-9]' || fail 'the rehearsal does not count what it would block'
+pfw __complete detach '' | grep -qx "$IFACE" || fail 'completion does not offer the attached interface'
+pfw __complete knob set '' | grep -qx port || fail 'completion does not offer the enforcing policy'"'"'s knob'
+
+# On trial: it blocks, and when nobody confirms it goes back by itself.
+pfw unshadow --confirm 6s
+pfw status | grep -q 'trial    undone in' || fail 'status does not say a change is on trial'
+expect 000 "$PORT" GPTBot 'on trial: a crawler is cut off'
+sleep 8
+expect 200 "$PORT" GPTBot 'the trial was not confirmed: a crawler gets the page again'
+pfw status | grep -q 'not confirmed: went back' || fail 'status does not say the trial went back'
+curl -fsS -m 5 "$METRICS" | grep -q '^pfw_trial_pending 0' || fail 'Prometheus says a trial is still pending'
+
+# Confirmed, it stays.
+pfw unshadow --confirm
+curl -fsS -m 5 "$METRICS" | grep -q '^pfw_trial_pending 1' || fail 'Prometheus does not say a trial is pending'
+pfw confirm
+if pfw confirm >/dev/null 2>&1; then fail 'confirm with nothing on trial did not fail'; fi
+pfw status | grep -q 'trial' && fail 'a confirmed change is still shown on trial'
 pfw status | grep -q 'enforcing' || fail 'the policy is not enforcing'
 
 expect 200 "$PORT" '' 'enforcing: a browser gets the page'
 expect 000 "$PORT" GPTBot 'enforcing: a crawler is cut off'
+
+# Rollback: to the policy before, and of a trial, at once.
+pfw apply rules:baseline/pass.pfc
+expect 200 "$PORT" GPTBot 'another policy applied: a crawler gets the page'
+pfw rollback
+pfw status | grep -q 'rules:http/crawlers.pfc' || fail 'rollback did not return to the policy before'
+expect 000 "$PORT" GPTBot 'rolled back: a crawler is cut off again'
+pfw apply rules:baseline/pass.pfc --confirm 10m
+expect 200 "$PORT" GPTBot 'a policy on trial: a crawler gets the page'
+pfw rollback | grep -q 'rolled back the trial' || fail 'rollback did not undo the trial'
+expect 000 "$PORT" GPTBot 'the trial rolled back: a crawler is cut off again'
+
+# What the firewall says as it is changed.
+log=$(mktemp)
+timeout 6 pfw logs >"$log" 2>&1 &
+sleep 2
+pfw shadow >/dev/null
+pfw unshadow >/dev/null
+wait || true
+grep -q 'pfw: shadow' "$log" && grep -q 'pfw: unshadow' "$log" || {
+	cat "$log" >&2
+	fail 'pfw logs did not show the changes'
+}
+rm -f "$log"
+pass "[$ON] logs follow the firewall"
 
 pfw shadow
 expect 200 "$PORT" GPTBot 'shadow mode: a crawler gets the page'
@@ -114,10 +170,12 @@ expect 000 "$PORT" GPTBot 'knob unset: back to guarding the default port'
 
 pfw --json status | grep -q '"ok":true' || fail 'the JSON status is not ok'
 pfw metrics | grep -q '^packets' || fail 'the text metrics page is missing'
-curl -fsS -m 5 http://127.0.0.1:9477/metrics | grep -q '^pfw_rule_hits_total{rule="crawler"} [1-9]' ||
+curl -fsS -m 5 "$METRICS" | grep -q '^pfw_rule_hits_total{rule="crawler"} [1-9]' ||
 	fail 'Prometheus does not count the crawler rule'
 pass "[$ON] status, metrics and the exporter agree"
 
+# A restart in the middle of a trial comes back to what was confirmed.
+pfw apply rules:baseline/pass.pfc --confirm 10m
 pfw restart
 pfw status | grep -q 'rules:http/crawlers.pfc' || fail 'the policy did not survive a restart'
 pfw status | grep -q "on $IFACE" || fail "the firewall did not come back on $IFACE"
@@ -141,8 +199,8 @@ fi
 pfw clear
 expect 200 "$PORT" GPTBot 'cleared: a crawler gets the page'
 
-if [ "$ON" != lo ]; then
-	pfw attach lo
+if [ -n "$home" ]; then
+	pfw attach $home
 	pfw detach "$IFACE"
 fi
 

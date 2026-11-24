@@ -13,12 +13,14 @@ export class SavedState {
 
   // The module to save for the firewall as it now stands.
   moduleOf(firewall) {
-    const policy = firewall.policy;
+    const { policy, shadow } = firewall.settled;
+    const kept = (p) => (p ? { name: p.name, source: p.source } : null);
     return `export default ${JSON.stringify({
       interfaces: firewall.interfaces.map((i) => i.name),
-      policy: policy ? { name: policy.name, source: policy.source } : null,
+      policy: kept(policy),
+      previous: kept(firewall.previous),
       knobs: firewall.knobs,
-      shadow: firewall.shadow,
+      shadow,
     })};\n`;
   }
 
@@ -36,6 +38,21 @@ export class SavedState {
   // A saved policy that will not load is reported and left out: the
   // firewall still comes up, and `pfw status` shows it enforcing nothing.
   async restorePolicy(firewall, saved) {
+    // Remembered after the policy is enforced, which would overwrite it.
+    const previous = this.#compiled(saved?.previous);
+    await this.#enforceSaved(firewall, saved);
+    if (previous) firewall.remember(previous);
+  }
+
+  #compiled(kept) {
+    try {
+      return kept ? new Policy(kept.name, kept.source) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async #enforceSaved(firewall, saved) {
     if (!saved?.policy) return;
     try {
       await firewall.enforce(new Policy(saved.policy.name, saved.policy.source));

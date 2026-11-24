@@ -62,6 +62,7 @@ export function document(status, stats) {
         value: status.interfaces.map((i) => [{ interface: i.name, ifindex: String(i.index) }, 1]),
       }),
       shadow: gauge({ help: "1 while enforcement is a dry run.", value: stats.shadow }),
+      trial_pending: gauge({ help: "1 while a change waits to be confirmed, and is undone if it is not.", value: Boolean(status.on_trial) }),
       policy: {
         enforcing: gauge({ help: "1 while a policy is enforcing.", value: policy !== null }),
         info: policy && gauge({ help: "The policy now enforcing.", value: [[policyLabels(policy), 1]] }),

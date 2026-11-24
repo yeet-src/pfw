@@ -76,19 +76,23 @@ Things to know:
 pfw saves, and restores when it starts:
 
 - the interfaces it is attached to,
-- the policy in place,
+- the policy in place, and the one before it, for `pfw rollback`,
 - the knobs you have set, for every policy,
 - whether shadow mode is on.
 
 So a restart, an upgrade or a reboot brings it back as you left it.
 
-It is saved after `attach`, `detach`, `apply`, `clear`, `shadow`, `unshadow`
-and `knob set`/`unset`, to `/var/lib/pfw/state.js`, with `sudo`. Each of
+It is saved after `attach`, `detach`, `apply`, `clear`, `shadow`, `unshadow`,
+`confirm`, `rollback` and `knob set`/`unset`, to `/var/lib/pfw/state.js`, with `sudo`. Each of
 those commands ends with a line saying so:
 
 ```
 ✔ saved for restarts at /var/lib/pfw/state.js
 ```
+
+A change [on trial](policies.md#on-trial) is not saved until it is
+confirmed: a restart in the middle of one comes back to what was running
+before it.
 
 Counters, tracked connections and bans are *not* saved. They start over when
 the firewall restarts.

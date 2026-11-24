@@ -5,7 +5,7 @@ the steps in order. Each ends with **Check**, which tells you what you should
 see before going on, and **If not**, which tells you what to do instead.
 
 Nothing here blocks anything until step 9, and every step before that can be
-undone by `pfw down`.
+undone by `pfw down`. Step 9 undoes itself unless you confirm it.
 
 If you only want to see pfw work on a test machine,
 [Getting started](getting-started.md) is the five-minute version.
@@ -94,6 +94,10 @@ A `▲` about "no policy" is expected: you have not applied one yet.
 ---
 
 ## Point it at your traffic
+
+Steps 5 to 8 are what `pfw setup` does, asking you the same questions. Run
+it instead if you like, then pick this guide up again at the **Now wait**
+of step 8.
 
 ### 5. Attach to your interface
 
@@ -241,21 +245,24 @@ policy (step 6), and wait again. To back out completely: `pfw clear`.
 
 ## Turn it on
 
-### 9. Set a safety net, then enforce
+### 9. Enforce it, on trial
 
-First, a timer that undoes this by itself in ten minutes unless you cancel
-it. If the policy cuts off something you need, including your own access,
-you wait ten minutes and it is gone.
+Make the policy real for ten minutes:
 
 ```sh
-sudo -v
-( sleep 600; pfw clear ) & timer=$!
+pfw unshadow --confirm 10m
 ```
 
-Now make the policy real:
+It is blocking from the next packet. Unless you confirm it, the firewall
+undoes this by itself when the ten minutes are up and goes back to
+rehearsing. If the policy cuts off something you need, including your own
+access, you wait and it is gone. The timer is inside the firewall, so it
+does not depend on your terminal staying open.
 
-```sh
-pfw unshadow
+`pfw status` counts it down:
+
+```
+  trial    undone in 9m 41s   pfw confirm keeps it, pfw rollback undoes it now
 ```
 
 **Check, straight away, from your second terminal and from a browser:**
@@ -267,19 +274,18 @@ pfw unshadow
 **If anything is wrong:**
 
 ```sh
-pfw clear
+pfw rollback
 ```
 
-Everything passes again at once. Or do nothing, and the timer does it.
+It is back to rehearsing at once. Or do nothing, and the deadline does it.
 
-**If everything is right,** cancel the timer before it fires, in the same
-terminal you started it in:
+**If everything is right,** keep it:
 
 ```sh
-kill $timer
+pfw confirm
 ```
 
-**Check:** ten minutes later, `pfw status` still says `enforcing`.
+**Check:** `pfw status` says `enforcing` and has no `trial` line.
 
 You are now protected.
 
@@ -316,7 +322,10 @@ pfw status >/dev/null || echo "pfw is down"
 ```
 
 If you run Prometheus, pfw publishes metrics on this machine at
-`http://127.0.0.1:9477/metrics`. The three alerts worth having:
+`http://127.0.0.1:9477/metrics`. A scrape job, a set of alerts and a Grafana
+dashboard are ready to copy from
+[`contrib/`](https://github.com/yeet-src/pfw/tree/master/contrib). The three
+alerts worth having:
 
 | alert when | means |
 |---|---|
@@ -342,17 +351,17 @@ To move to the newer version, rehearse it first, the same as before:
 pfw shadow
 pfw apply rules:http/crawlers.pfc
 # watch pfw status for a while
-pfw unshadow
+pfw unshadow --confirm 10m
+pfw confirm
 ```
 
-Pulling never changes what is running. Only `apply` does.
+Pulling never changes what is running. Only `apply` does. If the newer
+version turns out worse, `pfw rollback` returns to the one you had.
 
 ### 13. Upgrade pfw itself
 
-Run the installer again:
-
 ```sh
-curl -fsSL https://raw.githubusercontent.com/yeet-src/pfw/master/install.sh | sh
+pfw upgrade
 ```
 
 pfw restarts onto the new version and comes back as it was. For the few
@@ -378,17 +387,18 @@ pfw knob set rules:http/crawlers.pfc port 80    # your policy, your port (if it 
 pfw shadow && pfw apply rules:http/crawlers.pfc # rehearse
 pfw status                            # after a while: read "would block"
 
-sudo -v; ( sleep 600; pfw clear ) & timer=$!   # safety net
-pfw unshadow                          # enforce
+pfw unshadow --confirm 10m            # enforce, on trial
 # check the site and your login, then:
-kill $timer                           # keep it
+pfw confirm                           # keep it
 ```
 
 ## Getting out
 
 | you want to | run |
 |---|---|
+| undo a trial now | `pfw rollback` |
+| go back to the policy you had before | `pfw rollback` |
 | stop blocking, keep pfw running | `pfw clear` |
 | go back to rehearsing | `pfw shadow` |
 | stop pfw entirely | `pfw down` |
-| remove pfw from the machine | see [Installing](install.md#uninstalling) |
+| remove pfw from the machine | `pfw uninstall` |

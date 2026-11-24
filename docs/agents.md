@@ -65,17 +65,18 @@ First, find out and tell me, without changing anything:
 Then stop and ask me to confirm the interface and the port.
 
 After I confirm:
-1. `pfw attach <interface>` then `pfw detach lo`. Show me `pfw status` and
-   confirm the "seen" count is rising.
-2. `pfw pull`, then `pfw ls`. Show me the full list and recommend one
+1. `pfw pull`, then `pfw ls`. Show me the full list and recommend one
    policy, saying why, quoting its description. Ask me which to use.
    Refer to policies by name (remote:path): the numbers in the list shift
    when the repository changes.
-3. If the policy has a `port` knob and my port differs from its default,
-   run `pfw knob set <remote:path> port <port>`.
-4. `pfw shadow`, then `pfw apply <remote:path>`. Shadow mode blocks nothing.
-5. Show me `pfw status`. Tell me to let it run through real traffic, and
-   that you will check "would block" when I come back.
+2. Run setup with my answers, which attaches to the interface, sets the
+   knob and applies the policy in shadow mode, blocking nothing:
+   `pfw setup --yes --iface <interface> --policy <remote:path>`
+   adding `--knob port=<port>` if the policy has a `port` knob and my port
+   differs from its default.
+3. Show me `pfw status` and confirm the "seen" count is rising. Tell me to
+   let it run through real traffic, and that you will check "would block"
+   when I come back.
 
 Stop there. Do NOT run `pfw unshadow`. Enforcing is my decision, and I
 will ask for it separately.
@@ -97,14 +98,15 @@ plausible for the policy's description, and flag it if "would block" is 0
 or is more than a few percent of everything.
 
 If I then say to go ahead:
-1. Run `sudo -v`, then start a safety timer in the background:
-   ( sleep 600; pfw clear ) & timer=$!
-2. Run `pfw unshadow`.
-3. Immediately check: `pfw status`, and curl the local web service to
+1. Run `pfw unshadow --confirm 10m`. That enforces the policy on trial: the
+   firewall undoes it by itself after ten minutes unless it is confirmed.
+   Never use plain `pfw unshadow`.
+2. Immediately check: `pfw status`, and curl the local web service to
    confirm it still answers.
-4. Tell me to check my site and my own login from another terminal.
-5. Only when I confirm everything works, cancel the timer (kill $timer, in the same shell). If I
-   say anything is wrong, run `pfw clear` at once.
+3. Tell me to check my site and my own login from another terminal.
+4. Only when I say everything works, run `pfw confirm`. If I say anything
+   is wrong, run `pfw rollback` at once. If I do not answer, do nothing:
+   the trial ends by itself.
 ```
 
 ## 3. Write a policy for me
@@ -156,6 +158,8 @@ Gather, and show me:
 - `pfw knob ls` (if a policy is in place)
 - `pfw remote ls`
 - `yeet service tree pfw`
+- `timeout 5 pfw logs` (what the firewall says, live, while you run
+  `pfw status` in another shell)
 - `ip -br link` and, for each interface pfw is on, `ip link show <iface>`
 
 Then read https://github.com/yeet-src/pfw/blob/master/docs/troubleshooting.md
@@ -170,8 +174,9 @@ knob points at the wrong port; the running service is behind its installed
 build (doctor's "version" line); this host is not logged in to yeet.
 
 If I am locked out of something or traffic is being wrongly blocked, say
-so first and offer `pfw clear`, which lets everything through at once
-without stopping pfw.
+so first and offer `pfw rollback`, which returns to the policy before, or
+`pfw clear`, which lets everything through. Both act at once and neither
+stops pfw.
 ```
 
 ## 5. Set up monitoring
@@ -181,6 +186,10 @@ Set up monitoring for pfw on this machine. pfw serves Prometheus metrics at
 http://127.0.0.1:9477/metrics. The metric list is at
 https://github.com/yeet-src/pfw/blob/master/docs/metrics.md
 
+0. Ready-made files are in
+   https://github.com/yeet-src/pfw/tree/master/contrib : a scrape job
+   (prometheus/scrape.yml), alert rules (prometheus/alerts.yml) and a
+   Grafana dashboard (grafana/pfw.json). Use them rather than writing new.
 1. Confirm the endpoint answers: curl -s http://127.0.0.1:9477/metrics | head
 2. Find out whether Prometheus runs on this machine, and where its config
    is. If it runs elsewhere, stop and tell me: pfw's port is local-only on
@@ -230,12 +239,22 @@ How it works:
 - Shadow mode (`pfw shadow` / `pfw unshadow`) is a dry run: verdicts are
   counted as "would block" and nothing is blocked.
 - `pfw clear` removes the policy: everything passes, pfw stays up.
-- State (interfaces, policy, knobs, shadow) survives restarts.
+- A change that starts blocking can be made on trial:
+  `pfw unshadow --confirm 10m` or `pfw apply POLICY --confirm 10m`. The
+  firewall undoes it at the deadline unless `pfw confirm` comes first.
+  `pfw rollback` undoes a trial at once; with no trial, it returns to the
+  policy before the current one.
+- `pfw setup --yes --iface IFACE --policy POLICY [--knob NAME=VALUE]` does
+  attach, pull, knobs and apply-in-shadow in one step, blocking nothing.
+- State (interfaces, policy, knobs, shadow) survives restarts. A restart
+  during a trial comes back to what was running before the trial.
 
 Reading its state:
 - `pfw doctor` checks everything and prints the fix for what is wrong.
   Start there whenever something is off.
 - `pfw status` exits non-zero when the firewall is down.
+- `pfw logs` follows what the firewall says, live, until interrupted: run
+  it under `timeout`.
 - Add `--json` before the command for machine-readable output:
   `pfw --json status`.
 - `pfw metrics` opens a full-screen app on a terminal. In a script or an
@@ -255,10 +274,11 @@ Limits you must respect:
 Safety rules for you:
 - Never run `pfw unshadow`, `pfw down`, or `pfw apply` outside shadow mode
   without the user saying so explicitly.
-- Before enforcing, start a safety timer: `( sleep 600; pfw clear ) & timer=$!`
-  and cancel it with `kill $timer` only once the user confirms all is well.
-- If the user reports being blocked or locked out: `pfw clear` first,
-  questions after.
+- Enforce only on trial: `pfw unshadow --confirm 10m`, and `pfw confirm`
+  only once the user says all is well.
+- If the user reports being blocked or locked out: `pfw rollback` or
+  `pfw clear` first, questions after.
+- Never run `pfw uninstall` or `pfw upgrade` unless asked in so many words.
 - Ask before any command that needs sudo.
 - Do not edit files under /usr/local/share/pfw or /var/lib/pfw by hand.
 ```

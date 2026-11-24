@@ -1,0 +1,92 @@
+# Alerts for pfw: name this file under rule_files in prometheus.yml.
+#
+#   promtool check rules alerts.yml
+#
+# Each says what it means and what to run. The names of the metrics are
+# checked against what pfw exports (contrib/check.sh, in `make test`).
+groups:
+  - name: pfw
+    rules:
+      - alert: PfwDown
+        expr: up{job="pfw"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: pfw does not answer its scrape on {{ $labels.instance }}
+          description: The service is down or its port is unreachable, so nothing is filtered. Run `pfw doctor`, then `pfw up`.
+
+      - alert: PfwFirewallNotAnswering
+        expr: yeet_worker_up{job="pfw"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: pfw's firewall is not answering on {{ $labels.instance }}
+          description: The service is up but the firewall inside it did not answer the scrape. Run `pfw doctor`, then `pfw restart`.
+
+      - alert: PfwNotAttached
+        expr: pfw_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: pfw is attached to no interface on {{ $labels.instance }}
+          description: Nothing is filtered. `pfw interfaces` lists them, `pfw attach IFACE` takes one.
+
+      - alert: PfwNoPolicy
+        expr: pfw_policy_enforcing == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: pfw has no policy on {{ $labels.instance }}
+          description: Everything passes. `pfw ls`, then `pfw apply POLICY`; `pfw rollback` returns to the one before.
+
+      - alert: PfwShadowLeftOn
+        expr: pfw_shadow == 1
+        for: 24h
+        labels:
+          severity: warning
+        annotations:
+          summary: pfw has been in shadow mode for a day on {{ $labels.instance }}
+          description: The policy decides and counts, and blocks nothing. `pfw unshadow --confirm 10m` enforces it on trial.
+
+      - alert: PfwTrialPending
+        expr: pfw_trial_pending == 1
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: a change to pfw has waited an hour to be confirmed on {{ $labels.instance }}
+          description: It is undone at its deadline. `pfw confirm` keeps it, `pfw rollback` undoes it now.
+
+      - alert: PfwProgramFaults
+        expr: rate(pfw_faults_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: pfw's policy is faulting on {{ $labels.instance }}
+          description: Runs of the policy are failing, and those packets pass undecided. `pfw metrics` shows where; `pfw rollback` returns to the policy before.
+
+      - alert: PfwEventsDropped
+        expr: rate(pfw_events_dropped_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: pfw is losing events on {{ $labels.instance }}
+          description: The policy logs faster than the host reads. Verdicts are not affected; the event stream has gaps.
+
+      - alert: PfwBlockingSurge
+        expr: |
+          sum by (instance) (rate(pfw_packets_total{verdict=~"drop|rst|ban"}[5m]))
+            > 0.2 * sum by (instance) (rate(pfw_packets_seen_total[5m]))
+          and sum by (instance) (rate(pfw_packets_seen_total[5m])) > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: pfw is blocking more than a fifth of traffic on {{ $labels.instance }}
+          description: Either an attack, or a policy catching real visitors. `pfw status` names the rules; `pfw shadow` stops the blocking and keeps the counting.

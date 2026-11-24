@@ -3,7 +3,7 @@
  * `yeet dial` forwards a pipe in whatever chunks it read.
  *
  *   [@<format> ]<verb> [<rest>]
- *   apply <bytes> <name>\n<bytes of pfw-C>
+ *   apply [confirm=<time> ]<bytes> <name>\n<bytes of pfw-C>
  *   check <count> [<filter>...]\n  then <count> of  <bytes> <name>\n<bytes of pfw-C>
  *   knobs <0|1>, knob-set <0|1> <knob> <value>, knob-unset <0|1> <knob>
  *                    then, for 1, the one policy they are about
@@ -16,6 +16,10 @@ export const FORMATS = ["json", "tty", "plain"];
 const MAX_POLICY_BYTES = 1024 * 1024;
 const MAX_CHECKED = 1024;
 const MAX_HEADER_BYTES = 4096;
+
+// `confirm=<time> ` ahead of a command's arguments puts the change on trial.
+const CONFIRM = /^confirm=(\S+)(?: |$)/;
+export const confirmOf = (rest) => rest.match(CONFIRM)?.[1] ?? null;
 
 export function parseHeader(line) {
   const [, format = "json", verb = "", rest = ""] = line.trim().match(/^(?:@(\S+) )?(\S*)(?: (.*))?$/s) ?? [];
@@ -40,7 +44,7 @@ async function optionalSource(rest, stream) {
 }
 
 const SOURCES = {
-  apply: async (rest, stream) => [await readSource(rest, stream)],
+  apply: async (rest, stream) => [await readSource(rest.replace(CONFIRM, ""), stream)],
 
   // `<count> [<filter>...]`: the count of sources, then what to show of them.
   async check(rest, stream) {

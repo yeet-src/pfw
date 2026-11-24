@@ -2,7 +2,8 @@
 #
 # Building
 #   make             build everything into dist/
-#   make test        the unit tests, and a syntax check of the shell scripts
+#   make test        the unit tests, the pfw command's own (test/cli.sh), and a
+#                    syntax check of the shell scripts
 #   make pkg         pkg/pfw.tar.gz: the command and the service, for install.sh
 #   make update      move the pfw-core clone to the newest commit of its ref
 #   make clean       remove what was built (keeps the pfw-core clone)
@@ -13,9 +14,12 @@
 #   make down        stop it
 #   make remove      stop it and remove the service from yeet
 #   make e2e         test/e2e.sh against the firewall that is up, on `lo`
+#   make scratch     the same test against a scratch firewall of its own, on a
+#                    port and an interface of its own: safe beside a real one
 #
 # Installing
-#   make install     pfw into $(PREFIX)/bin and the service into $(PREFIX)/share/pfw
+#   make install     pfw into $(PREFIX)/bin, the service into $(PREFIX)/share/pfw,
+#                    and the shell completions beside them
 #   make uninstall   remove both
 #
 #   make help        this list
@@ -117,12 +121,14 @@ bundle: dist/index.js
 dist/index.js: $(SOURCES) package.json $(PFW_CORE_ABS)/package.json $(CORE_STAMP) | node_modules/pfw-core toolchain
 	$(call step,bundle,$(BUNDLES),$(ESBUILD) $(ENTRIES) $(ESBUILD_FLAGS))
 
-SCRIPTS := bin/pfw install.sh test/e2e.sh
+SCRIPTS := bin/pfw install.sh assets/embed.sh contrib/check.sh test/e2e.sh test/cli.sh test/scratch.sh
 
 test: node_modules/pfw-core
 	$(Q)for script in $(SCRIPTS); do sh -n $$script || exit 1; done
 	$(Q)sh assets/embed.sh --check
+	$(Q)sh contrib/check.sh
 	$(Q)$(YEET) test test
+	$(Q)sh test/cli.sh
 
 # Through pfw, which knows a changed firewall must stop before its
 # replacement can take the XDP hook.
@@ -140,6 +146,10 @@ remove:
 e2e:
 	$(Q)sh test/e2e.sh
 
+# The same, against a second firewall made for it and removed after.
+scratch: all
+	$(Q)PFW_E2E=yes E2E_ON=veth sh test/scratch.sh sh test/e2e.sh
+
 help:
 	@sed -n '3,/^# To set a host up/p' Makefile | sed -e '$$d' -e 's/^# \{0,1\}//'
 
@@ -149,14 +159,19 @@ BINDIR := $(DESTDIR)$(PREFIX)/bin
 AS_OWNER = $(shell d=$(BINDIR); while [ ! -e "$$d" ]; do d=$$(dirname "$$d"); done; [ -w "$$d" ] || echo sudo)
 
 SHAREDIR := $(DESTDIR)$(PREFIX)/share/$(NAME)
+# Where bash-completion and zsh each look under a prefix.
+BASH_COMPLETION := share/bash-completion/completions/pfw
+ZSH_COMPLETION  := share/zsh/site-functions/_pfw
 
 install: all
 	$(call step,install,$(BINDIR)/pfw,$(AS_OWNER) install -D -m 0755 bin/pfw $(BINDIR)/pfw)
 	$(call step,install,$(SHAREDIR),$(AS_OWNER) install -D -m 0644 -t $(SHAREDIR) $(BUNDLES) && $(AS_OWNER) install -D -m 0644 dist/bin/vm.bpf.o $(SHAREDIR)/bin/vm.bpf.o && $(AS_OWNER) install -D -m 0644 dist/service.toml $(SHAREDIR)/service.toml)
+	$(call step,install,completions,$(AS_OWNER) install -D -m 0644 completions/pfw.bash $(DESTDIR)$(PREFIX)/$(BASH_COMPLETION) && $(AS_OWNER) install -D -m 0644 completions/_pfw $(DESTDIR)$(PREFIX)/$(ZSH_COMPLETION))
 
 uninstall:
 	$(call step,remove,$(BINDIR)/pfw,$(AS_OWNER) rm -f $(BINDIR)/pfw)
 	$(call step,remove,$(SHAREDIR),$(AS_OWNER) rm -rf $(SHAREDIR))
+	$(call step,remove,completions,$(AS_OWNER) rm -f $(DESTDIR)$(PREFIX)/$(BASH_COMPLETION) $(DESTDIR)$(PREFIX)/$(ZSH_COMPLETION))
 
 # The package install.sh installs: the command and the service's files, laid
 # out as a prefix holds them (bin/pfw, share/pfw/), so installing is
@@ -173,6 +188,8 @@ pkg: all
 		&& $(ESBUILD) $(ENTRIES) $(ESBUILD_FLAGS) --minify --outdir=$(STAGE)/share/$(NAME) \
 		&& cp dist/bin/vm.bpf.o $(STAGE)/share/$(NAME)/bin/ && cp dist/service.toml $(STAGE)/share/$(NAME)/ \
 		&& install -m 0755 bin/pfw $(STAGE)/bin/pfw \
+		&& install -D -m 0644 completions/pfw.bash $(STAGE)/$(BASH_COMPLETION) \
+		&& install -D -m 0644 completions/_pfw $(STAGE)/$(ZSH_COMPLETION) \
 		&& printf '%s\n' '$(PKG_VERSION)' > $(STAGE)/share/$(NAME)/VERSION \
 		&& tar -czf $(PACKAGE) -C $(STAGE) bin share && rm -rf $(STAGE))
 	$(call artifact,$(PACKAGE))
@@ -187,4 +204,4 @@ distclean: clean
 	$(call status,clean,.deps)
 	$(Q)rm -rf .deps
 
-.PHONY: all bundle test update distclean FORCE up down remove e2e help install uninstall pkg clean
+.PHONY: all bundle test update distclean FORCE up down remove e2e scratch help install uninstall pkg clean

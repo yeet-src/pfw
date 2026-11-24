@@ -9,6 +9,8 @@ pfw [--json | --color | --no-color] COMMAND [ARGS]
 A **POLICY** is its number in `pfw ls`, or `name:path`
 (`rules:http/crawlers.pfc`), or the path alone when you have one remote.
 
+A **TIME** is a number and `s`, `m` or `h`: `90s`, `10m`, `1h`.
+
 Commands marked **saved** record what they changed, so a restart comes back
 to it.
 
@@ -45,6 +47,42 @@ non-zero when something has to be fixed. See
 
 On a terminal, the dashboard. Otherwise, a page of text. See
 [Metrics](metrics.md).
+
+### `pfw setup [--iface IFACE] [--policy POLICY] [--knob NAME=VALUE]... [--yes]` — saved
+
+From a fresh install to a policy rehearsing, asking as it goes:
+
+1. starts the firewall if it is down, and turns shadow mode on;
+2. lists the interfaces and asks which to filter, suggesting the one the
+   default route uses; attaches to it and lets go of the others;
+3. pulls the remotes, lists the policies and asks which. A word narrows the
+   list and asks again; Enter leaves the policy for later;
+4. shows the policy's knobs and asks for values;
+5. applies the policy, in shadow mode.
+
+Nothing it does blocks anything, and it ends by saying how to enforce. An
+option answers its question in advance; `--yes` takes the suggestion for
+every question not answered, and asks nothing. It can be run again.
+
+### `pfw logs`
+
+Follows what the firewall says, as it says it: what it restored when it
+started, each change it was asked for, and a trial going back. Ctrl-C
+leaves, and the firewall keeps running. It keeps no history, so this is from
+now on; to see a start, run it and `pfw restart` from another terminal.
+
+### `pfw upgrade [--force]`
+
+Moves to the latest release: downloads it, replaces the command and the
+service's files, and restarts the firewall onto it. Says so and does nothing
+when you already have the latest; `--force` installs it again anyway.
+
+### `pfw uninstall [--yes] [--purge]`
+
+Stops the firewall and removes pfw: the service, the command, the service's
+files, the shell completions and the saved state. It lists what it will
+remove and asks first; `--yes` does not ask. Your settings, remotes and
+pulled policies are kept unless you add `--purge`. yeet is left installed.
 
 ## Interfaces
 
@@ -125,6 +163,23 @@ Turns on the dry run: verdicts are counted, nothing is blocked.
 
 Turns it off: verdicts are enforced.
 
+### `pfw unshadow --confirm [TIME]`, `pfw apply POLICY --confirm [TIME]`
+
+The same, **on trial**: the change is made now and undone after `TIME`
+(`10m` when left out) unless `pfw confirm` comes first. What is saved is
+what was running before, until it is confirmed.
+
+### `pfw confirm` — saved
+
+Keeps what is on trial. Fails when nothing is.
+
+### `pfw rollback` — saved
+
+With a trial pending, undoes it now. Otherwise puts back the policy that was
+in place before this one; a second `rollback` returns.
+
+See [On trial](policies.md#on-trial).
+
 ## Knobs
 
 ### `pfw knob ls [POLICY]`
@@ -175,6 +230,13 @@ The keys are `url`, `service`, `source`, `cache` and `yeet`. See
 | `-h`, `--help` | the summary |
 
 They go before the command: `pfw --json status`.
+
+## Tab completion
+
+Installed with pfw, for bash and zsh: commands, options, interfaces,
+remotes, policies by name and a policy's knobs. Open a new shell after
+installing. bash needs the `bash-completion` package, which most systems
+have.
 
 ## Exit status
 

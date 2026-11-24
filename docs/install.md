@@ -60,7 +60,10 @@ can be run again.
 
 When it finishes, the firewall is **running and blocking nothing**. It is
 attached to `lo`, the machine talking to itself, and has no policy.
-[Getting started](getting-started.md) takes it from there.
+[Getting started](getting-started.md) takes it from there, and `pfw setup`
+does its first steps for you.
+
+It also installs tab completion for bash and zsh, which a new shell picks up.
 
 ### Options
 
@@ -75,6 +78,7 @@ curl -fsSL https://raw.githubusercontent.com/yeet-src/pfw/master/install.sh | sh
 | `--prefix DIR` | install under `DIR` instead of `/usr/local` (`DIR/bin/pfw`, `DIR/share/pfw`) |
 | `--package SRC` | install this package, a file or a URL, instead of the latest release |
 | `--no-login` | do not require a yeet login |
+| `--no-up` | install only; start the firewall later with `pfw up` |
 
 To install on a machine nobody is sitting at, set `YEET_API_KEY`: the
 installer logs in with that key and opens no browser.
@@ -82,8 +86,6 @@ installer logs in with that key and opens no browser.
 ```sh
 curl -fsSL https://raw.githubusercontent.com/yeet-src/pfw/master/install.sh | YEET_API_KEY=… sh
 ```
-
-| `--no-up` | install only; start the firewall later with `pfw up` |
 
 ## Checking the install
 
@@ -108,9 +110,14 @@ The build is described in [Developing](developing.md).
 
 ## Upgrading
 
-Run the installer again. It replaces the command and the service's files and
-runs `pfw up`, which notices the build changed and restarts the firewall onto
-it. Your interfaces, policy, knobs and shadow mode come back as they were.
+```sh
+pfw upgrade
+```
+
+It says so when you already have the latest release. Otherwise it downloads
+it, replaces the command and the service's files, and restarts the firewall
+onto it. Your interfaces, policy, knobs and shadow mode come back as they
+were. Running the installer again does the same.
 
 The firewall is down for the moment it restarts, and traffic is not filtered
 during it. `pfw up` says so when it happens.
@@ -118,16 +125,18 @@ during it. `pfw up` says so when it happens.
 ## Uninstalling
 
 ```sh
-pfw down
-yeet service remove pfw
-sudo rm -rf /usr/local/bin/pfw /usr/local/share/pfw /var/lib/pfw
-rm -rf ~/.config/pfw ~/.cache/pfw
+pfw uninstall            # keeps your settings and pulled policies
+pfw uninstall --purge    # removes those too
 ```
+
+It stops the firewall, lists what it will remove, and asks before removing
+anything (`--yes` does not ask). yeet is left installed.
 
 | path | what it holds |
 |---|---|
 | `/usr/local/bin/pfw` | the command |
 | `/usr/local/share/pfw` | the service's files |
 | `/var/lib/pfw` | what the firewall remembers across restarts |
-| `~/.config/pfw` | your settings and your list of remotes |
-| `~/.cache/pfw` | the policy repositories pfw has cloned |
+| `/usr/local/share/bash-completion/completions/pfw`, `/usr/local/share/zsh/site-functions/_pfw` | tab completion |
+| `~/.config/pfw` | your settings and your list of remotes; removed only by `--purge` |
+| `~/.cache/pfw` | the policy repositories pfw has cloned; removed only by `--purge` |

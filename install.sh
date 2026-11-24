@@ -228,6 +228,12 @@ $as_owner rm -rf "$prefix/share/pfw"
 $as_owner cp -R "$work/pkg/share/pfw" "$prefix/share/pfw"
 $as_owner cp "$work/pkg/bin/pfw" "$prefix/bin/pfw"
 $as_owner chmod 0755 "$prefix/bin/pfw"
+# Tab completion, where bash-completion and zsh each look under a prefix.
+for completion in share/bash-completion/completions/pfw share/zsh/site-functions/_pfw; do
+	[ -f "$work/pkg/$completion" ] || continue
+	$as_owner mkdir -p "$prefix/$(dirname "$completion")"
+	$as_owner cp "$work/pkg/$completion" "$prefix/$completion"
+done
 step 'install' "$prefix/bin/pfw, $prefix/share/pfw${as_owner:+ (with sudo)}"
 
 case ":$PATH:" in
@@ -250,4 +256,4 @@ fi
 "$pfw" up || die 'up' 'the service did not come up' '`pfw doctor` says what is in the way'
 printf '\n'
 step 'done' 'the firewall is up, passing everything until a policy is applied'
-printf '%*s%s\n' 14 '' "$(note 'next:  pfw attach IFACE   pfw ls   pfw apply POLICY   pfw metrics')"
+printf '%*s%s\n' 14 '' "$(note 'next:  pfw setup   asks which interface and which policy, and blocks nothing')"

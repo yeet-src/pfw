@@ -1,0 +1,9 @@
+# The scrape job for pfw: add it under scrape_configs in prometheus.yml.
+#
+# pfw listens on 127.0.0.1 only, so this is for a Prometheus on the same
+# machine. To scrape from another, read docs/security.md first: the port has
+# no login, and whoever reaches it can change the policy.
+scrape_configs:
+  - job_name: pfw
+    static_configs:
+      - targets: ["127.0.0.1:9477"]

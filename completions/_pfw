@@ -1,0 +1,13 @@
+#compdef pfw
+# zsh completion for pfw. `pfw __complete` knows what can stand where; this
+# hands it the line and takes what it offers.
+
+if (( CURRENT >= 3 )) && [[ ${words[CURRENT-1]} == -f ]]; then
+  _files
+  return
+fi
+
+local -a offered
+offered=("${(@f)$(${words[1]} __complete "${(@)words[2,CURRENT]}" 2>/dev/null)}")
+offered=(${offered:#})
+compadd -a offered

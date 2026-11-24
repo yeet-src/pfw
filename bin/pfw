@@ -7,6 +7,11 @@
 #   pfw restart                stop it and bring it up again, as it was left
 #   pfw status                 is the firewall up, and what is it enforcing
 #   pfw doctor                 check everything pfw depends on, and say how to fix what fails
+#   pfw setup                  from a fresh install to a policy rehearsing: asks which
+#                                 interface and which policy, and blocks nothing
+#   pfw logs                   what the firewall is saying, as it says it
+#   pfw upgrade                move to the latest release
+#   pfw uninstall              remove pfw from this machine
 #   pfw metrics                everything it has counted, and how fast: on a terminal,
 #                                 an app to explore it; piped, a page of text
 #
@@ -27,6 +32,10 @@
 #   pfw clear                  stop enforcing: everything passes
 #   pfw shadow                 dry run: verdicts are counted, nothing is blocked
 #   pfw unshadow               enforce again
+#   pfw apply POLICY --confirm [TIME]   the same, on trial: undone after TIME (10m)
+#   pfw unshadow --confirm [TIME]          unless `pfw confirm` comes first
+#   pfw confirm                keep what is on trial
+#   pfw rollback               undo the trial now; with none, back to the policy before
 #
 #   pfw knob ls [POLICY]               a policy's knobs, and what each holds
 #   pfw knob set [POLICY] NAME VALUE   set one, for that policy
@@ -39,7 +48,7 @@
 # URL is anything `git clone` takes. REF is a branch, tag or commit: the
 # remote's default branch when left out. POLICY is NAME:PATH, a bare PATH
 # when there is one remote, or its number in `pfw ls`, wherever a POLICY
-# goes; with none, `apply` What `attach`, `detach`, `apply`, `clear`, `shadow` and `knob` change is saved,
+# goes. TIME is a number and s, m or h, like 90s or 10m. What `attach`, `detach`, `apply`, `clear`, `shadow` and `knob` change is saved,
 # and a restart comes back to it.
 #
 #   --json      print the service's reply as JSON
@@ -166,6 +175,10 @@ help() {
 	row name 'pfw status' 'is the firewall up, and what is it enforcing'
 	row name 'pfw doctor' 'check everything pfw depends on, and say how to fix what fails'
 	row name 'pfw metrics' 'what it has counted and how fast: an app on a terminal, text when piped'
+	row name 'pfw setup' 'a fresh install to a policy rehearsing: asks, and blocks nothing'
+	row name 'pfw logs' 'what the firewall is saying, as it says it'
+	row name 'pfw upgrade' 'move to the latest release'
+	row name 'pfw uninstall' 'remove pfw from this machine'
 	say
 	say "$(label 'interfaces')"
 	row name 'pfw interfaces' 'this machine'\''s interfaces: which pfw is on, which to attach to'
@@ -186,6 +199,9 @@ help() {
 	row name 'pfw clear' 'stop enforcing: everything passes'
 	row name 'pfw shadow' 'dry run: verdicts are counted, nothing is blocked'
 	row name 'pfw unshadow' 'enforce again'
+	row name '  --confirm [TIME]' 'apply or unshadow on trial: undone after TIME (10m) unless confirmed'
+	row name 'pfw confirm' 'keep what is on trial'
+	row name 'pfw rollback' 'undo the trial now; with none, back to the policy before'
 	say
 	say "$(label 'knobs')  $(note 'values a policy reads, like a port; POLICY defaults to the one enforcing')"
 	row name 'pfw knob ls [POLICY]' "a policy's knobs, and what each holds"
@@ -202,6 +218,7 @@ help() {
 	row value 'URL' 'anything git clone takes'
 	row value 'REF' "a branch, tag or commit (default: the remote's default branch)"
 	row value 'POLICY' 'its number in pfw ls, NAME:PATH, or a bare PATH with one remote'
+	row value 'TIME' 'a number and s, m or h: 90s, 10m, 1h'
 	say
 	say "$(label 'options')"
 	row value '--json' "print the service's reply as JSON"
@@ -241,8 +258,8 @@ find_yeet() {
 	return 1
 }
 # The commands that say what is wrong, or need no service, run without one.
-[ -n "$YEET" ] || YEET=$(find_yeet) || case ${1:-} in
-doctor | help | version | config | remote | '') YEET='' ;;
+[ "${1:-}" = __complete ] || [ -n "$YEET" ] || YEET=$(find_yeet) || case ${1:-} in
+doctor | help | version | config | remote | uninstall | '') YEET='' ;;
 *) die "no runnable yeet on PATH: pfw doctor says what else is missing" ;;
 esac
 
@@ -447,7 +464,9 @@ pull_one() {
 
 pull() {
 	[ -n "$(remote_names)" ] || die "no remotes: pfw remote add NAME URL"
-	for each in $(chosen "${1:-}"); do pull_one "$each"; done
+	# Named on a line of its own: a refusal inside the loop's list would be lost.
+	pulled=$(chosen "${1:-}") || exit 1
+	for each in $pulled; do pull_one "$each"; done
 }
 
 # ---- policies ---------------------------------------------------------------
@@ -562,7 +581,7 @@ apply() {
 	fi
 
 	{
-		printf '@%s apply ' "$format"
+		printf '@%s apply %s' "$format" "${trial:+confirm=$trial }"
 		policy_frame "$source" "$policy"
 	} | send
 	save
@@ -647,7 +666,9 @@ save() {
 	printf '%s\n' "$module" >"$staged"
 	chmod 0644 "$staged"
 	if $as_owner mkdir -p "$(dirname "$target")" && $as_owner cp "$staged" "$target.new" && $as_owner mv "$target.new" "$target"; then
-		[ "$format" = json ] || say "$(ok '✔') $(label 'saved for restarts at') $(value "$target")"
+		if [ "$format" = json ]; then :; elif [ -n "${trial:-}" ]; then
+			say "$(ok '✔') $(label 'a restart before you confirm comes back to what ran before, saved at') $(value "$target")"
+		else say "$(ok '✔') $(label 'saved for restarts at') $(value "$target")"; fi
 	else
 		caution "not saved: could not write $target"
 	fi
@@ -1048,6 +1069,394 @@ summary() {
 	fi
 }
 
+# ---- interfaces -------------------------------------------------------------
+
+# The interfaces the default route goes through: where the network's traffic arrives.
+default_route() {
+	ip -o route show default 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | sort -u
+}
+
+# The host's interfaces, as the service draws them. It cannot see the
+# host's routes or what else is attached, so for a service on this host it
+# is told: the interfaces the default route goes through, and the ones with
+# an XDP program on them.
+list_interfaces() {
+	told=''
+	if is_local && command -v ip >/dev/null 2>&1; then
+		defaults=$(default_route | paste -sd, -)
+		held=''
+		for path in /sys/class/net/*; do
+			each=${path##*/}
+			if ip link show "$each" 2>/dev/null | grep -q 'xdp'; then held="${held:+$held,}$each"; fi
+		done
+		told="${defaults:+ default=$defaults}${held:+ xdp=$held}"
+	fi
+	printf '@%s interfaces%s\n' "$format" "$told" | send
+}
+
+# Interfaces named one an argument, or with commas, or both: as one list.
+together() {
+	old_ifs=$IFS
+	IFS=,
+	joined="$*"
+	IFS=$old_ifs
+	printf '%s\n' "$joined"
+}
+
+# A command that changes what a restart must come back to.
+change() {
+	printf '@%s %s\n' "$format" "$1" | send
+	save
+}
+
+# ---- setup ------------------------------------------------------------------
+# From a fresh install to a policy rehearsing in shadow mode: the first steps
+# of the guide, asked one at a time. Nothing it does blocks anything.
+
+# A question with its suggestion; Enter, or --yes, takes the suggestion.
+prompt() {
+	if [ -n "$assume" ]; then
+		answer=$2
+		return
+	fi
+	printf '%s%s ' "$(strong "$1")" "$([ -z "$2" ] || printf ' %s' "$(note "[$2]")")" >&2
+	IFS= read -r answer || answer=''
+	answer=${answer:-$2}
+}
+
+stage() { printf '\n%s  %s\n' "$(value "$1")" "$(label "$2")"; }
+
+# One exchange whose request is the file $request; what changed is the
+# reply's first line. A file, not a pipe: a pipe would lose the reply.
+did() {
+	if ask "$format" <"$request"; then say "${reply%%"
+"*}"; else
+		say "$reply"
+		return 1
+	fi
+}
+tell() {
+	printf '@%s %s\n' "$format" "$1" >"$request"
+	did
+}
+
+# The interfaces the firewall is on, one a line.
+attached() {
+	query status || return 0
+	case $reply in *'no interface'*) return 0 ;; esac
+	printf '%s\n' "$reply" | sed -n '2s/.*   on //p' | sed 's/   .*//' | tr ',' '\n' | tr -d ' '
+}
+
+# The knobs a policy file reads.
+knob_names() {
+	grep -o 'k\(nob\|str\)("[^"]*")' "$1" 2>/dev/null | sed 's/.*("\(.*\)")/\1/' | sort -u
+}
+
+setup() {
+	want_iface='' want_policy='' want_knobs='' assume=''
+	while [ $# -gt 0 ]; do
+		case $1 in
+		-y | --yes) assume=1 ;;
+		-i | --iface | -p | --policy | -k | --knob)
+			[ $# -ge 2 ] || die "pfw setup $1 takes a value"
+			case $1 in
+			-i | --iface) want_iface=$2 ;;
+			-p | --policy) want_policy=$2 ;;
+			*) want_knobs="$want_knobs $2" ;;
+			esac
+			shift
+			;;
+		*) die "pfw setup takes --iface IFACE, --policy POLICY, --knob NAME=VALUE and --yes" ;;
+		esac
+		shift
+	done
+	[ "$format" != json ] || die "pfw setup talks to a person: there is no --json for it"
+	request=$(mktemp)
+
+	stage 1 'the firewall'
+	if query status && ! gated; then say "$(ok '✔') $(strong 'it is up')"; else
+		up >/dev/null
+		say "$(ok '✔') $(strong 'started it')"
+	fi
+	tell shadow
+
+	stage 2 'the interface to protect'
+	list_interfaces
+	now=$(attached)
+	suggested=$want_iface
+	if [ -z "$suggested" ]; then
+		case $now in '' | lo) suggested=$(default_route | head -n 1) ;; *) suggested=$(printf '%s\n' "$now" | paste -sd, -) ;; esac
+	fi
+	if [ -n "$want_iface" ]; then answer=$want_iface; else prompt 'filter which interface?' "${suggested:-lo}"; fi
+	wanted=$(together $answer)
+	tell "attach $wanted"
+	for each in $now; do
+		case ",$wanted," in *",$each,"*) ;; *) tell "detach $each" ;; esac
+	done
+
+	stage 3 'the policies'
+	pull ''
+	if [ -z "$want_policy" ]; then
+		list ''
+		# A word that names no policy narrows the list, and the question is asked again.
+		while :; do
+			prompt 'which policy? its number or name, a word to search for, or Enter to choose later' ''
+			case $answer in '' | *:* | *.pfc) break ;; *[!0-9]*) ;; *) break ;; esac
+			list "$(ls_filters $answer)" || true
+		done
+		want_policy=$answer
+	fi
+	if [ -z "$want_policy" ]; then
+		say
+		save
+		say "$(ok '✔') $(strong "pfw is on $wanted, in shadow mode, and no policy was chosen")"
+		say "  $(label 'next')   $(name 'pfw ls')  $(note 'then')  $(name 'pfw setup --policy POLICY')"
+		rm -f "$request"
+		return
+	fi
+	resolve "$want_policy"
+	source=$(remote_dir "$from")/$path policy=$from:$path@$(rev "$from")
+
+	if [ -n "$(knob_names "$source")" ]; then
+		stage 4 'its knobs'
+		for pair in $want_knobs; do
+			case $pair in *=*) ;; *) die "a knob is NAME=VALUE: $pair" ;; esac
+			{
+				printf '@%s knob-set 1 %s %s\n' "$format" "${pair%%=*}" "${pair#*=}"
+				policy_frame "$source" "$policy"
+			} >"$request"
+			did || exit 1
+		done
+		while :; do
+			{
+				printf '@%s knobs 1\n' "$format"
+				policy_frame "$source" "$policy"
+			} >"$request"
+			ask "$format" <"$request" || true
+			say "$reply"
+			[ -z "$assume" ] || break
+			prompt 'set one? NAME VALUE, or Enter to go on' ''
+			[ -n "$answer" ] || break
+			{
+				printf '@%s knob-set 1 %s\n' "$format" "$answer"
+				policy_frame "$source" "$policy"
+			} >"$request"
+			did >/dev/null || say "$reply"
+		done
+	elif [ -n "$want_knobs" ]; then
+		die "$from:$path has no knobs to set"
+	fi
+
+	stage 5 'the rehearsal'
+	{
+		printf '@%s apply ' "$format"
+		policy_frame "$source" "$policy"
+	} >"$request"
+	did || exit 1
+	save
+	rm -f "$request"
+
+	say
+	say "$(ok '✔') $(strong "$from:$path is rehearsing on $wanted: it decides and counts, and blocks nothing")"
+	say "  $(label 'next')   $(note 'let real traffic through for a while, then')"
+	say "         $(name 'pfw status')                   $(note 'would block N is what it would have stopped')"
+	say "         $(name 'pfw unshadow --confirm 10m')   $(note 'enforce it, on trial')"
+	say "         $(name 'pfw confirm')                  $(note 'keep it, once your site and your login still work')"
+}
+
+# ---- logs -------------------------------------------------------------------
+
+# The firewall's console, live: what it restored when it started, each
+# change it was asked for, and a trial going back. An isolate keeps no
+# history, so this is from now on.
+logs() {
+	internal=$("$YEET" service get "$PFW_SERVICE" 2>/dev/null | sed -n 's/^Service  *[^ ]* (\(.*\)).*/\1/p')
+	[ -n "$internal" ] || die "there is no $PFW_SERVICE service: pfw up creates it"
+	isolate=$("$YEET" ps 2>/dev/null | awk -v w="shared-worker:$internal:" 'index($0, w) { print $1; exit }')
+	[ -n "$isolate" ] || die "the $PFW_SERVICE service is not running, so it is saying nothing: pfw up starts it, pfw doctor says what is wrong"
+	[ "$format" = json ] || printf '%s %s\n' "$(label '●')" "$(note "the firewall's log, from now on (Ctrl-C leaves; the firewall keeps running)")" >&2
+	exec "$YEET" attach -c "$isolate"
+}
+
+# ---- upgrade and uninstall --------------------------------------------------
+
+RELEASES=https://github.com/yeet-src/pfw/releases/latest
+PFW_INSTALLER=${PFW_INSTALLER:-https://raw.githubusercontent.com/yeet-src/pfw/master/install.sh}
+
+# The prefix this pfw was installed under; fails for one run from its tree.
+installed_prefix() {
+	self=$(command -v -- "$0") && here=$(cd "$(dirname "$self")" && pwd) || return 1
+	[ -f "$here/../share/pfw/service.toml" ] || return 1
+	(cd "$here/.." && pwd)
+}
+
+upgrade() {
+	force=''
+	case ${1:-} in
+	'') ;;
+	--force) force=1 ;;
+	*) die "pfw upgrade takes --force, to install the latest release again" ;;
+	esac
+	prefix=$(installed_prefix) || die "this pfw runs from its source tree: git pull, then make install"
+	command -v curl >/dev/null 2>&1 || die "curl is needed to download the release: install it"
+
+	have=$(version)
+	latest=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$RELEASES" 2>/dev/null) || die "could not reach $RELEASES"
+	latest=${latest##*/}
+	if [ "$have" = "$latest" ] && [ -z "$force" ]; then
+		say "$(ok '✔') $(strong "pfw $have is the latest release")"
+		return
+	fi
+	say "$(label '●') $(strong "pfw $have") $(label '→') $(strong "$latest")  $(note 'the firewall restarts onto it, unfiltered for a few seconds')"
+
+	case $PFW_INSTALLER in
+	http://* | https://*) curl -fsSL "$PFW_INSTALLER" | sh -s -- --prefix "$prefix" ;;
+	*) sh "$PFW_INSTALLER" --prefix "$prefix" ;;
+	esac
+}
+
+uninstall() {
+	assume='' purge=''
+	while [ $# -gt 0 ]; do
+		case $1 in
+		-y | --yes) assume=1 ;;
+		--purge) purge=1 ;;
+		*) die "pfw uninstall takes --yes, and --purge to remove your settings and pulled policies too" ;;
+		esac
+		shift
+	done
+	prefix=$(installed_prefix) || die "this pfw runs from its source tree: make remove, then make uninstall"
+	state=$(service_arg "$prefix/share/pfw/service.toml" state-file /var/lib/pfw/state.js)
+	settings=$(dirname "$PFW_CONFIG")
+
+	say "$(warn '▲') $(strong 'this stops the firewall and removes pfw from this machine:')"
+	say "    $(value "the $PFW_SERVICE service")  $(note 'nothing is filtered once it stops')"
+	say "    $(value "$prefix/bin/pfw")"
+	say "    $(value "$prefix/share/pfw")"
+	say "    $(value "$state")"
+	if [ -n "$purge" ]; then
+		say "    $(value "$settings")  $(note 'your settings and remotes')"
+		say "    $(value "$PFW_CACHE")  $(note 'the pulled policies')"
+	fi
+	if [ -z "$assume" ]; then
+		[ -t 0 ] || die "nobody to ask: pfw uninstall --yes"
+		printf '%s ' "$(strong 'go on? [y/N]')"
+		read -r answer || answer=''
+		case $answer in y | Y | yes) ;; *) die "nothing was removed" ;; esac
+	fi
+
+	as_owner=''
+	[ -w "$prefix/bin" ] || as_owner=sudo
+	if [ -n "$YEET" ]; then
+		"$YEET" service stop "$PFW_SERVICE" >/dev/null 2>&1 || true
+		"$YEET" service remove "$PFW_SERVICE" >/dev/null 2>&1 || true
+	fi
+	$as_owner rm -f "$state" "$prefix/share/bash-completion/completions/pfw" "$prefix/share/zsh/site-functions/_pfw"
+	case $state in /var/lib/pfw/*) $as_owner rmdir /var/lib/pfw 2>/dev/null || true ;; esac
+	$as_owner rm -rf "$prefix/share/pfw"
+	[ -z "$purge" ] || rm -rf "$settings" "$PFW_CACHE"
+	$as_owner rm -f "$prefix/bin/pfw"
+
+	say "$(ok '✔') $(strong 'pfw is removed')$([ -n "$purge" ] || printf '  %s' "$(note "your settings ($settings) and pulled policies ($PFW_CACHE) are kept: --purge removes them")")"
+	say "  $(note 'yeet itself is left installed')"
+}
+
+# ---- completion -------------------------------------------------------------
+
+# What the shells' completions offer (completions/): the command line after
+# `pfw`, the last word being the one under the cursor, in; the words that
+# could stand there, one a line, out. All of them: the shell keeps the ones
+# that match. It asks the service only for what it alone knows, briefly, and
+# says nothing when it has nothing.
+offer() { printf '%s\n' "$@"; }
+offer_policies() { [ ! -f "$REMOTES" ] || policies 2>/dev/null | tr "$TAB" ':'; }
+offer_remotes() { [ ! -f "$REMOTES" ] || cut -f 1 "$REMOTES"; }
+offer_interfaces() { ls /sys/class/net 2>/dev/null || true; }
+from_service() {
+	[ -n "$YEET" ] || YEET=$(find_yeet) || return 0
+	[ -z "$DEADLINE" ] || DEADLINE='timeout 2'
+	"$@" 2>/dev/null || true
+}
+enforcing_knobs() {
+	query 'knobs 0' && printf '%s\n' "$reply" | sed -n 's/^  \([A-Za-z_][A-Za-z0-9_]*\)  .*/\1/p'
+}
+
+__complete() {
+	while :; do
+		case ${1:-} in --json | --color | --no-color) shift ;; *) break ;; esac
+	done
+	if [ $# -le 1 ]; then
+		offer up down restart status doctor setup logs metrics upgrade uninstall \
+			interfaces attach detach remote pull ls apply clear shadow unshadow \
+			confirm rollback knob config version help --json --color --no-color --help --version
+		return
+	fi
+	verb=$1
+	shift
+	eval "prev=\${$(($# - 1)):-}"
+	[ $# -ge 2 ] || prev=''
+
+	case $verb in
+	attach) offer_interfaces ;;
+	detach) from_service attached ;;
+	pull) offer_remotes ;;
+	ls)
+		case $prev in
+		-s | --severity) offer critical high medium low ;;
+		-t | --tag) ;;
+		*)
+			offer_remotes
+			offer --tag --severity
+			;;
+		esac
+		;;
+	apply | load)
+		case $prev in
+		-f) ;;
+		*)
+			[ "$prev" != --confirm ] || offer 5m 10m 30m 1h
+			offer_policies
+			offer --confirm -f
+			;;
+		esac
+		;;
+	unshadow) if [ "$prev" = --confirm ]; then offer 5m 10m 30m 1h; else offer --confirm; fi ;;
+	remote)
+		case $#:$1 in
+		1:*) offer add ls rm ;;
+		2:rm) offer_remotes ;;
+		esac
+		;;
+	knob)
+		case $#:$1 in
+		1:*) offer ls set unset ;;
+		2:ls) offer_policies ;;
+		2:set | 2:unset)
+			offer_policies
+			from_service enforcing_knobs
+			;;
+		3:set | 3:unset) (resolve "$2" 2>/dev/null && knob_names "$(remote_dir "$from")/$path") || true ;;
+		esac
+		;;
+	config)
+		case $#:$1 in
+		1:*) offer ls get set unset ;;
+		2:get | 2:set | 2:unset) offer $KEYS ;;
+		esac
+		;;
+	setup)
+		case $prev in
+		-i | --iface) offer_interfaces ;;
+		-p | --policy) offer_policies ;;
+		-k | --knob) ;;
+		*) offer --iface --policy --knob --yes ;;
+		esac
+		;;
+	upgrade) offer --force ;;
+	uninstall) offer --yes --purge ;;
+	esac
+}
+
 # ---- main -------------------------------------------------------------------
 
 if [ -n "$wants_version" ] || [ "${1:-}" = version ]; then
@@ -1096,47 +1505,49 @@ if [ "$verb" = knob ]; then
 	exit 0
 fi
 
-file=''
-while getopts f: opt; do
-	case $opt in
-	f) file=$OPTARG ;;
-	*) usage ;;
+case $verb in
+setup | upgrade | uninstall | __complete)
+	"$verb" "$@"
+	exit $?
+	;;
+esac
+
+# `-f FILE` and `--confirm [TIME]`, wherever they stand; the rest are the
+# command's own arguments.
+file='' trial=''
+left=$#
+while [ "$left" -gt 0 ]; do
+	arg=$1
+	shift
+	left=$((left - 1))
+	case $arg in
+	-f)
+		[ "$left" -gt 0 ] || usage
+		file=$1
+		shift
+		left=$((left - 1))
+		;;
+	--confirm=*) trial=${arg#*=} ;;
+	--confirm)
+		trial=10m
+		if [ "$left" -gt 0 ]; then
+			case $1 in
+			*[!0-9smh]* | '') ;;
+			[0-9]*[smh])
+				trial=$1
+				shift
+				left=$((left - 1))
+				;;
+			esac
+		fi
+		;;
+	*) set -- "$@" "$arg" ;;
 	esac
 done
-shift $((OPTIND - 1))
-
-# The host's interfaces, as the service draws them. It cannot see the
-# host's routes or what else is attached, so for a service on this host it
-# is told: the interfaces the default route goes through, and the ones with
-# an XDP program on them.
-list_interfaces() {
-	told=''
-	if is_local && command -v ip >/dev/null 2>&1; then
-		defaults=$(ip -o route show default 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | sort -u | paste -sd, -)
-		held=''
-		for path in /sys/class/net/*; do
-			each=${path##*/}
-			if ip link show "$each" 2>/dev/null | grep -q 'xdp'; then held="${held:+$held,}$each"; fi
-		done
-		told="${defaults:+ default=$defaults}${held:+ xdp=$held}"
-	fi
-	printf '@%s interfaces%s\n' "$format" "$told" | send
-}
-
-# Interfaces named one an argument, or with commas, or both: as one list.
-together() {
-	old_ifs=$IFS
-	IFS=,
-	joined="$*"
-	IFS=$old_ifs
-	printf '%s\n' "$joined"
-}
-
-# A command that changes what a restart must come back to.
-change() {
-	printf '@%s %s\n' "$format" "$1" | send
-	save
-}
+case $verb in
+load | apply | unshadow) ;;
+*) [ -z "$trial" ] || die "--confirm goes with apply and unshadow, the two that start blocking" ;;
+esac
 
 case $verb in
 up)
@@ -1187,9 +1598,21 @@ clear)
 	[ $# -eq 0 ] || usage
 	change clear
 	;;
-shadow | unshadow)
+shadow)
+	[ $# -eq 0 ] || usage
+	change shadow
+	;;
+unshadow)
+	[ $# -eq 0 ] || usage
+	change "unshadow${trial:+ confirm=$trial}"
+	;;
+confirm | rollback)
 	[ $# -eq 0 ] || usage
 	change "$verb"
+	;;
+logs)
+	[ $# -eq 0 ] || usage
+	logs
 	;;
 *)
 	usage

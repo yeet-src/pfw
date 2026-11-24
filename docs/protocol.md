@@ -36,9 +36,12 @@ A header line, ending in a newline:
 | `interfaces` | `[default=<names>] [xdp=<names>]` | the host's interfaces, the attached ones marked; the client says which the default route uses and which hold an XDP program, since the service cannot see either |
 | `attach` | `<name>[,<name>...]` | attach to these as well |
 | `detach` | `<name>[,<name>...]` | let go of these |
-| `apply` | `<bytes> <name>` then the source | compile a policy and enforce it |
+| `apply` | `[confirm=<time> ]<bytes> <name>` then the source | compile a policy and enforce it |
 | `clear` | | stop enforcing |
-| `shadow`, `unshadow` | | the dry run, on and off |
+| `shadow` | | the dry run, on |
+| `unshadow` | `[confirm=<time>]` | the dry run, off |
+| `confirm` | | keep what is on trial |
+| `rollback` | | undo the trial; with none, back to the policy before |
 | `check` | `<count> [<filter>...]` then the sources | compile policies, change nothing, and list those the filters choose |
 | `knobs` | `<0\|1>` | a policy's knobs |
 | `knob-set` | `<0\|1> <knob> <value>` | set one |
@@ -67,6 +70,12 @@ exactly that many bytes:
   and `0` when they mean the policy in place.
 
 A policy's name is `<remote>:<path>@<rev>`, or a file path.
+
+`confirm=<time>` puts the change on trial: it is undone after that long
+unless `confirm` comes first. `<time>` is a number and `s`, `m` or `h`,
+from `5s` to `24h`. A status reply then carries `"trial":{"until":<ms>}`;
+`"lapsed_at"` is when one last ran out, and `"previous"` names the policy
+`rollback` would return to.
 
 A source may be at most 1 MiB, a header 4096 bytes, and a `check` 1024
 policies.

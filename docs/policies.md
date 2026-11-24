@@ -177,6 +177,55 @@ pfw unshadow
 Shadow mode belongs to the firewall, not to a policy: it stays on across
 `apply` and across restarts until you turn it off.
 
+## On trial
+
+A policy that blocks the wrong thing can block you. So the two commands that
+start blocking can be made to undo themselves:
+
+```sh
+pfw unshadow --confirm 10m       # enforce, for ten minutes
+pfw apply rules:http/crawlers.pfc --confirm 10m     # or a new policy, for ten minutes
+```
+
+The change takes effect at once, and the firewall undoes it when the time is
+up, going back to what it was doing before, unless you keep it first:
+
+```sh
+pfw confirm
+```
+
+`pfw status` shows the countdown:
+
+```
+  trial    undone in 9m 41s   pfw confirm keeps it, pfw rollback undoes it now
+```
+
+- **The time** is a number and `s`, `m` or `h`: `90s`, `10m`, `1h`. From 5
+  seconds to 24 hours. `--confirm` alone means `10m`.
+- **The timer is in the firewall**, not your terminal. Closing the terminal,
+  or losing your connection, does not cancel it. That is what it is for.
+- **`pfw rollback`** undoes the trial now, without waiting.
+- **Everything you change during a trial is part of it.** A second
+  `--confirm` moves the deadline; what it goes back to is still the last
+  state you confirmed.
+- **A restart during a trial** comes back to what was running before it.
+- After one runs out, `pfw status` says `not confirmed: went back 3m ago`
+  until the next change.
+
+## Rolling back
+
+```sh
+pfw rollback
+```
+
+With a trial pending, it undoes the trial. Otherwise it puts back **the
+policy that was in place before this one**, with the knobs you had set for
+it, and the one it replaced becomes the one before, so a second `rollback`
+returns. After a `clear`, it puts the cleared policy back. The policy before
+is remembered across restarts.
+
+It changes the policy only: interfaces and knobs stay as they are.
+
 ## Clearing
 
 ```sh
@@ -186,6 +235,7 @@ pfw clear
 Removes the policy. Everything passes, pfw stays attached and keeps counting
 packets. This is the fast way out when a policy is blocking something it
 should not. Bans already in place still stand until they expire.
+`pfw rollback` puts the policy back.
 
 ## The states pfw can be in
 
@@ -199,12 +249,16 @@ stateDiagram-v2
     state "up, no policy: everything passes" as Passing
     state "shadow: decides and counts, blocks nothing" as Shadow
     state "enforcing: verdicts are real" as Enforcing
+    state "on trial: enforcing, and undone at the deadline" as Trial
     state "attached to nothing: filters nothing, keeps its policy" as Detached
     state "down: not running, nothing is filtered" as Down
 
     Passing --> Shadow: pfw shadow, then pfw apply
     Passing --> Enforcing: pfw apply
     Shadow --> Enforcing: pfw unshadow
+    Shadow --> Trial: pfw unshadow --confirm 10m
+    Trial --> Enforcing: pfw confirm
+    Trial --> Shadow: the deadline passes, or pfw rollback
     Enforcing --> Shadow: pfw shadow
     Shadow --> Passing: pfw clear
     Enforcing --> Passing: pfw clear

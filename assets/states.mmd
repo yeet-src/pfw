@@ -6,12 +6,16 @@ stateDiagram-v2
     state "up, no policy: everything passes" as Passing
     state "shadow: decides and counts, blocks nothing" as Shadow
     state "enforcing: verdicts are real" as Enforcing
+    state "on trial: enforcing, and undone at the deadline" as Trial
     state "attached to nothing: filters nothing, keeps its policy" as Detached
     state "down: not running, nothing is filtered" as Down
 
     Passing --> Shadow: pfw shadow, then pfw apply
     Passing --> Enforcing: pfw apply
     Shadow --> Enforcing: pfw unshadow
+    Shadow --> Trial: pfw unshadow --confirm 10m
+    Trial --> Enforcing: pfw confirm
+    Trial --> Shadow: the deadline passes, or pfw rollback
     Enforcing --> Shadow: pfw shadow
     Shadow --> Passing: pfw clear
     Enforcing --> Passing: pfw clear

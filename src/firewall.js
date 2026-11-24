@@ -16,6 +16,9 @@ import { CTL, FAILED, INIT, READY, REPLY, VIEW, message } from "#/worker/protoco
 
 const SAMPLE_MS = 1000;
 
+// The commands that only look. The rest are logged: `pfw logs` follows them.
+const READS = new Set(["status", "metrics", "interfaces", "check", "knobs", "saved"]);
+
 /* Comes up as the `pfw` command last left it: on the interfaces it was attached to,
  * enforcing the policy it had. With nothing saved it attaches to the
  * service's `--iface` and passes everything.
@@ -64,6 +67,7 @@ const handlers = {
 
   async [CTL](port, { id, request }) {
     const { firewall, state } = await up;
+    if (!READS.has(request.verb)) console.log(`pfw: ${request.verb}${request.rest ? ` ${request.rest}` : ""}`);
     port.postMessage(message(REPLY, { id, text: await answer(firewall, state, request) }));
   },
 };

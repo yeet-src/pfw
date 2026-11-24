@@ -3,6 +3,24 @@
 From a fresh [install](install.md) to a policy that is really blocking, in
 six steps. Each shows what you should see.
 
+## The short way
+
+```sh
+pfw setup
+```
+
+asks which interface to protect and which policy to use, sets the policy's
+knobs, and leaves it rehearsing in shadow mode, blocking nothing. That is
+steps 1 to 4 below. Then go to [step 5](#5-enforce-it).
+
+It can be told the answers instead of asking:
+
+```sh
+pfw setup --iface eth0 --policy rules:http/crawlers.pfc --knob port=8080 --yes
+```
+
+The steps one at a time, so you know what each does:
+
 ## 1. See that it is up
 
 ```sh
@@ -111,11 +129,26 @@ another policy, or [change a knob](knobs.md), and look again.
 ## 5. Enforce it
 
 ```sh
-pfw unshadow
+pfw unshadow --confirm 10m
 ```
 
-From the next packet, the policy is real. `pfw status` now says `enforcing`,
-and `rst`, `drop` or `ban` start to count.
+From the next packet, the policy is real, **on trial for ten minutes**.
+`pfw status` says `enforcing`, with a line counting down:
+
+```
+  trial    undone in 9m 41s   pfw confirm keeps it, pfw rollback undoes it now
+```
+
+Check that your site still loads and that you can still log in to the
+machine. Then keep it:
+
+```sh
+pfw confirm
+```
+
+If you do nothing, or cannot, the ten minutes run out and the policy goes
+back to rehearsing by itself. That is the point: a policy that cuts you off
+does not keep you off. Plain `pfw unshadow` enforces with no trial.
 
 ## 6. Watch it work
 
@@ -131,30 +164,33 @@ every box.
 
 That is all of it:
 
-**pull → list → shadow → apply → check → unshadow**
+**pull → list → shadow → apply → check → unshadow on trial → confirm**
 
 <!-- diagram: workflow -->
 ```mermaid
-flowchart LR
+flowchart TD
     install["install"] --> doctor["pfw doctor"]
-    doctor --> ifaces["pfw interfaces<br/>pfw attach"]
+    doctor -->|"pfw setup does these, asking as it goes"| ifaces["pfw interfaces<br/>pfw attach"]
     ifaces --> pull["pfw pull"]
     pull --> ls["pfw ls<br/>choose a policy"]
     ls --> knob["pfw knob set<br/>if it has knobs"]
     knob --> shadow["pfw shadow<br/>pfw apply"]
     shadow --> check{"would block<br/>looks right?"}
     check -->|"no"| ls
-    check -->|"yes"| unshadow["pfw unshadow"]
-    unshadow --> watch["pfw status<br/>pfw metrics"]
+    check -->|"yes"| unshadow["pfw unshadow --confirm 10m"]
+    unshadow --> works{"site and login<br/>still work?"}
+    works -->|"yes"| confirm["pfw confirm"]
+    works -.->|"no: do nothing,<br/>it goes back by itself"| shadow
+    confirm --> watch["pfw status<br/>pfw metrics"]
     watch -->|"a newer version, or another policy"| pull
-    unshadow -.->|"something is wrong"| clear["pfw clear"]
+    watch -.->|"something is wrong"| clear["pfw clear<br/>or pfw rollback"]
     clear -.-> ls
 
     classDef dry fill:#422006,stroke:#facc15,color:#fefce8
     classDef live fill:#052e16,stroke:#4ade80,color:#f0fdf4
     classDef out fill:#450a0a,stroke:#f87171,color:#fef2f2
-    class shadow,check dry
-    class unshadow,watch live
+    class shadow,check,unshadow,works dry
+    class confirm,watch live
     class clear out
 ```
 <!-- /diagram -->
@@ -166,5 +202,7 @@ flowchart LR
 - [Using policies](policies.md): your own repositories, updating, clearing.
 - [Writing a policy](writing-policies.md): make one of your own.
 - [Security](security.md): before pfw's port is reachable from anywhere else.
-- If you lock yourself out of something: `pfw clear` lets everything through
-  again without stopping pfw.
+- If you blocked something you need: `pfw rollback` goes back to the policy
+  before, and `pfw clear` lets everything through, both without stopping pfw.
+- Tab completion for bash and zsh is installed with pfw: `pfw app<Tab>`,
+  `pfw apply rules:<Tab>`. Open a new shell to pick it up.

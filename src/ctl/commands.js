@@ -10,9 +10,15 @@
  *                               and which to attach to
  *   attach <name>[,<name>...]   attach to these interfaces as well
  *   detach <name>[,<name>...]   let go of these interfaces
- *   apply                       compile its one source and enforce it
+ *   apply [confirm=<time>]      compile its one source and enforce it
  *   clear                       stop enforcing, and pass everything
- *   shadow, unshadow            dry run on and off: decide and count, block nothing
+ *   shadow                      dry run: decide and count, block nothing
+ *   unshadow [confirm=<time>]   enforce again
+ *   confirm                     keep what is on trial
+ *   rollback                    undo the trial, or go back to the policy before
+ *
+ * `confirm=<time>` puts the change on trial: it is undone after that long
+ * unless `confirm` comes first (src/fw/trial.js).
  *   check [<filter>...]         compile its sources, change nothing, and list
  *                               the ones the filters choose (src/ctl/select.js)
  *   knobs                       a policy's knobs and what each holds
@@ -26,12 +32,31 @@
 import { listInterfaces, resolveInterfaces } from "#/fw/interfaces.js";
 import { parseMeta } from "#/fw/meta.js";
 import { Policy, PolicyError } from "#/fw/policy.js";
+import { parseSpan } from "#/fw/trial.js";
+import { duration } from "#/ctl/render/format.js";
+import { confirmOf } from "#/ctl/request.js";
 import { isFiltering, parseFilters, select } from "#/ctl/select.js";
 
 const statusOf = async (firewall, notice) => {
   const data = await firewall.report();
   return { view: "status", ok: data.running, data, notice };
 };
+
+/* Makes a change, on trial when the request asks for one. The time is
+ * read before anything changes, so a bad one changes nothing, and the
+ * snapshot is taken ahead of the change it is the way back from.
+ */
+async function onTrial(firewall, rest, change, notice) {
+  const asked = confirmOf(rest);
+  const ms = asked === null ? null : parseSpan(asked);
+  const before = firewall.snapshot();
+
+  await change();
+  if (ms === null) return statusOf(firewall, notice);
+
+  firewall.tryFor(ms, before);
+  return statusOf(firewall, `${notice}, on trial: undone in ${duration(ms)} unless you run pfw confirm`);
+}
 
 // The interfaces a header names, which must be at least one.
 function named(rest) {
@@ -127,9 +152,9 @@ export const commands = {
   },
 
   // Compiled first: one that does not compile leaves the running policy alone.
-  async apply(firewall, { sources: [{ name, source }] }) {
-    await firewall.enforce(new Policy(name, source));
-    return statusOf(firewall, `applied ${name}`);
+  apply(firewall, { rest, sources: [{ name, source }] }) {
+    const policy = new Policy(name, source);
+    return onTrial(firewall, rest, () => firewall.enforce(policy), `applied ${name}`);
   },
 
   async shadow(firewall) {
@@ -137,9 +162,19 @@ export const commands = {
     return statusOf(firewall, "shadow mode on: verdicts are counted, nothing is blocked");
   },
 
-  async unshadow(firewall) {
-    await firewall.setShadow(false);
-    return statusOf(firewall, "shadow mode off: verdicts are enforced");
+  unshadow: (firewall, { rest }) =>
+    onTrial(firewall, rest, () => firewall.setShadow(false), "shadow mode off: verdicts are enforced"),
+
+  confirm(firewall) {
+    if (!firewall.confirm()) throw new Error("Nothing is on trial: there is nothing to confirm");
+    return statusOf(firewall, "confirmed: it stays");
+  },
+
+  async rollback(firewall) {
+    const undoing = firewall.trial.pending;
+    await firewall.rollback();
+    const now = firewall.policy?.name ?? "no policy: passing everything";
+    return statusOf(firewall, undoing ? `rolled back the trial: ${now}` : `rolled back to ${now}`);
   },
 
   knobs(firewall, request) {

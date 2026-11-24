@@ -24,6 +24,9 @@ you what it let through and what it stopped.
   there to begin with.
 - **You can try a policy before trusting it.** In *shadow mode* it decides
   and counts as usual and blocks nothing, so you see what it would have done.
+- **A change can undo itself.** Enforce a policy *on trial* and it goes back
+  after ten minutes unless you confirm it, so a rule that locks you out does
+  not keep you out.
 - **Changes are live.** Applying a policy, or changing a value it reads, takes
   effect on the next packet. Nothing restarts, and no connection is dropped
   for it.
@@ -46,17 +49,16 @@ More in [Installing](docs/install.md).
 ## Quick start
 
 ```sh
-pfw doctor            # is everything in place?
-pfw interfaces        # which interface is which
-pfw attach eth0       # the one to protect
-pfw pull              # download the public policies
-pfw ls                # list them
-pfw shadow            # dry run on: decide and count, block nothing
-pfw apply rules:http/crawlers.pfc   # put a policy in place
-pfw status            # "would block N" is what it would have stopped
-pfw unshadow          # make it real
-pfw metrics           # the dashboard
+pfw setup                    # asks which interface and which policy; blocks nothing
+pfw status                   # "would block N" is what it would have stopped
+pfw unshadow --confirm 10m   # make it real, on trial for ten minutes
+pfw confirm                  # keep it, once your site and your login still work
+pfw metrics                  # the dashboard
 ```
+
+`pfw setup` leaves the policy *rehearsing*: deciding and counting, blocking
+nothing. If you do not run `pfw confirm`, the trial ends by itself and the
+policy goes back to rehearsing.
 
 [Getting started](docs/getting-started.md) walks through each of those with
 what you should see. For a machine with real traffic on it, follow

@@ -37,6 +37,46 @@ const STATS = {
   decide_hist: { bounds: [100, 1000], counts: [4n, 5n, 1n] },
 };
 
+// Every metric pfw exports. contrib/check.sh reads this list, and holds the
+// alerts and the dashboard in contrib/ to it.
+const EXPORTED = [
+  "pfw_up",
+  "pfw_interface_info",
+  "pfw_shadow",
+  "pfw_trial_pending",
+  "pfw_policy_enforcing",
+  "pfw_policy_info",
+  "pfw_policy_applied_timestamp_seconds",
+  "pfw_knob",
+  "pfw_packets_seen_total",
+  "pfw_packets_total",
+  "pfw_program_runs_total",
+  "pfw_shadowed_total",
+  "pfw_standing_verdict_packets_total",
+  "pfw_scanned_bytes_total",
+  "pfw_faults_total",
+  "pfw_flows_created_total",
+  "pfw_nat_reversed_total",
+  "pfw_events_logged_total",
+  "pfw_events_dropped_total",
+  "pfw_frames_sampled_total",
+  "pfw_reassembly_total",
+  "pfw_h2_total",
+  "pfw_rule_hits_total",
+  "pfw_rule_runs_total",
+  "pfw_rule_decide_nanoseconds_total",
+  "pfw_decide_duration_nanoseconds",
+];
+
+test("the list of exported metrics is the page, no more and no less", async () => {
+  const text = await render(document({ ...STATUS, on_trial: true }, STATS));
+  const families = new Set([...text.matchAll(/^# TYPE (pfw_\S+) /gm)].map(([, name]) => name));
+
+  for (const name of EXPORTED) assert(families.has(name), `${name} is listed and not exported`);
+  for (const name of families) assert(EXPORTED.includes(name), `${name} is exported and not listed`);
+  assert(text.includes("pfw_trial_pending 1"));
+});
+
 test("a loaded policy renders its counters by verdict and rule", async () => {
   const text = await render(document(STATUS, STATS));
 

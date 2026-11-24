@@ -32,6 +32,13 @@ function knobsRow(p, policy) {
   return row(p, "knobs", set.map((k) => `${p.name(k.name)} ${p.strong(shown(k))}`).join("   "));
 }
 
+// A change waiting to be confirmed, or one that was not and has gone back.
+function trialRow(p, { trial, lapsed_at }, now) {
+  if (trial) return row(p, "trial", `${p.warn(`undone in ${duration(trial.until - now)}`)}   ${p.note("pfw confirm keeps it, pfw rollback undoes it now")}`);
+  if (lapsed_at) return row(p, "trial", p.warn(`not confirmed: went back ${duration(now - lapsed_at)} ago`));
+  return null;
+}
+
 function packetsRow(p, { counters, shadow, shadowed }) {
   return row(p, "packets", [
     `${p.strong(count(counters.seen))} ${p.label("seen")}`,
@@ -68,6 +75,7 @@ export function status(report, p, now = Date.now()) {
   return [
     `${state}   ${p.label("on")} ${interfaces}${dryRun}`,
     policyRow(p, report, now),
+    trialRow(p, report, now),
     knobsRow(p, report.policy),
     packetsRow(p, report),
     rulesRow(p, report.rules),

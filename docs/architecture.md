@@ -197,6 +197,18 @@ sequenceDiagram
 
 That is why saving works only from the machine the firewall runs on.
 
+### Where a trial's timer runs
+
+`pfw unshadow --confirm 10m` returns at once. The countdown is a timer in
+the firewall worker, which holds what the firewall was doing before the
+change. At the deadline it puts that back; `pfw confirm` cancels it. Nothing
+on your side has to stay open, which is the point: the person who might be
+locked out is the one who started it.
+
+While a trial is pending, the state the firewall hands `pfw` to save is the
+one before the trial, so a restart cannot make an unconfirmed change
+permanent.
+
 ### Where the speeds come from
 
 The engine only counts. Once a second the firewall reads its counters and

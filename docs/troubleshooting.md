@@ -188,7 +188,28 @@ The dashboard opens only on a terminal. Through a pipe, in a script, or with
 No command waits more than 30 seconds for the firewall. If one gives up, the
 firewall has stopped answering: `pfw restart`.
 
+### I enforced a policy and a while later it was rehearsing again
+
+It was on trial (`--confirm`) and nobody ran `pfw confirm`, so the firewall
+undid it at the deadline. `pfw status` says so: `not confirmed: went back …
+ago`. Enforce it again and confirm it once you have checked that everything
+still works.
+
+### `Nothing is on trial: there is nothing to confirm`
+
+The trial already ran out, or there was none. `pfw status` says which.
+
+### `There is nothing to roll back to`
+
+No policy has been applied or cleared since pfw was installed, so there is
+no policy before this one.
+
 ## Getting more out of it
+
+`pfw logs` follows what the firewall says as it says it: what it restored at
+start, every change it is asked for, and a trial going back. It keeps no
+history, so to watch a start, leave it running and `pfw restart` from another
+terminal.
 
 ```sh
 pfw --json status      # everything the firewall knows, for a bug report

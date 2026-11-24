@@ -166,8 +166,14 @@ jobs:
       - name: Build
         run: make
 
-      - name: Unit tests
+      - name: Unit tests, the command's tests, and the checks on docs and contrib
         run: make test
+
+      - name: The alert rules, as Prometheus reads them
+        if: matrix.name == 'x86_64'
+        run: |
+          docker run --rm -v "$PWD/contrib/prometheus:/rules:ro" --entrypoint promtool \
+            prom/prometheus:latest check rules /rules/alerts.yml
 
       - name: Package
         run: |
@@ -211,6 +217,10 @@ jobs:
           fi
           command -v pfw
           pfw --version
+          # Tab completion came with it, and completes.
+          test -f /usr/local/share/bash-completion/completions/pfw
+          test -f /usr/local/share/zsh/site-functions/_pfw
+          bash -c 'source /usr/local/share/bash-completion/completions/pfw; COMP_LINE="pfw roll" COMP_POINT=8; _pfw; [ "${COMPREPLY[0]}" = rollback ]'
 
       - name: End to end, on loopback, through a restart of the daemon
         if: steps.login.outputs.in == 'true'
@@ -365,6 +375,17 @@ jobs:
         run: |
           ! command -v yeet
           ! command -v pfw
+      # With no release from this run (a pull request), the latest release
+      # is an older pfw than the test below is written for: the one line
+      # then installs this run's package, by way of PFW_PACKAGE.
+      - uses: actions/download-artifact@v4
+        if: needs.release.result == 'skipped'
+        with:
+          name: package
+          path: pkg
+      - name: Which package the one line installs
+        run: |
+          if [ -f pkg/pfw.tar.gz ]; then echo "PFW_PACKAGE=$PWD/pkg/pfw.tar.gz" >> "$GITHUB_ENV"; fi
       - name: The one line
         env:
           YEET_API_KEY: ${{ secrets.YEET_API_KEY }}
@@ -382,6 +403,33 @@ jobs:
       - uses: actions/checkout@v4
       - name: End to end, against it
         run: sh test/e2e.sh
+      - name: Upgrade
+        run: |
+          set -euo pipefail
+          pfw up
+          pfw pull
+          pfw apply rules:http/crawlers.pfc
+          # A release from this run is the latest, and pfw knows it has it.
+          if [ -z "${PFW_PACKAGE:-}" ]; then pfw upgrade | grep 'is the latest release'; fi
+          # Installed again over itself, the firewall comes back as it was.
+          pfw upgrade --force
+          pfw status
+          pfw status | grep -q 'rules:http/crawlers.pfc'
+      - name: Uninstall
+        run: |
+          set -euo pipefail
+          if pfw uninstall </dev/null; then echo "::error::uninstall did not ask"; exit 1; fi
+          command -v pfw
+          pfw uninstall --yes --purge
+          ! command -v pfw
+          ! test -e /usr/local/share/pfw
+          ! test -e /var/lib/pfw
+          ! test -e /usr/local/share/bash-completion/completions/pfw
+          ! test -e "$HOME/.config/pfw"
+          ! test -e "$HOME/.cache/pfw"
+          ! yeet service list | grep -qw pfw
+          ! ip link show lo | grep -q xdp
+          yeet version
       - name: What the service says, if that failed
         if: failure()
         run: |

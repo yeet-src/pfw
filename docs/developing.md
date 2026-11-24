@@ -84,15 +84,44 @@ does well) and its `web-server` at another port, and run `pfw` with
 make test
 ```
 
-The tests in `test/` run under `yeet test`. They cover what is pure: the
-metrics document, the text renderers, policy metadata, knobs, speeds and
-percentiles, and the argument parsing. What touches the kernel is exercised
-by hand against a scratch service.
+It runs four things:
+
+- **the unit tests** in `test/*.test.js`, under `yeet test`. They cover what
+  is pure: the metrics document, the text renderers, policy metadata, knobs,
+  speeds and percentiles, trials and rollback, and the argument parsing;
+- **`test/cli.sh`**: the `pfw` command where it needs no firewall. Its help,
+  settings, remotes, pulling from a git repository it makes, the options it
+  refuses, and what it offers the shell to complete, with bash driven as a
+  completion drives it. Its settings are a temporary directory's and its
+  service address is one nothing listens on;
+- **`contrib/check.sh`**: every metric the alerts and the dashboard name is
+  one pfw exports;
+- **`assets/embed.sh --check`**: the diagrams in the pages match their
+  files.
+
+### A scratch firewall
+
+```sh
+make scratch                      # the end-to-end test, against a firewall made for it
+sh test/scratch.sh                # a shell where `pfw` is a scratch firewall
+sh test/scratch.sh pfw status     # one command
+```
+
+`test/scratch.sh` makes a second pfw service from `dist/`, on a port
+(19477), a pair of virtual interfaces (`pfws0`, `pfws1`), a state file,
+settings and a cache of its own, runs what it is given with `pfw` meaning
+that one, and removes it all after. It refuses to go on if the firewall that
+answers is not the scratch one. Use it on any machine whose own firewall
+must be left alone.
+
+### End to end
 
 `test/e2e.sh` (`make e2e`) is the end-to-end test: against an installed
 firewall it starts a web server and asks for a page as a browser and as a
-crawler, with no policy, enforcing, in shadow mode, with a
-knob changed, after a restart and cleared. It changes the firewall on the
+crawler, with no policy, after `pfw setup`, on trial, after a trial ran out,
+confirmed, rolled back, in shadow mode, with a knob changed, after a restart
+in the middle of a trial, and cleared. It also follows `pfw logs` and reads
+the exporter. It changes the firewall on the
 host and stops it at the end, so outside CI it runs only with `PFW_E2E=yes`.
 `E2E_ON=veth` runs it across a pair of virtual interfaces in place of
 loopback, and `E2E_DAEMON_RESTART=yes` adds a restart of the yeet daemon.
@@ -241,6 +270,7 @@ src/fw/meta.js            a policy's `@key` metadata, from its opening comments
 src/fw/knobs.js           knob values, kept per policy
 src/fw/rates.js           the counters sampled each second: speeds and percentiles
 src/fw/name.js            a policy's name, and the key that outlives its revision
+src/fw/trial.js           a change that undoes itself at a deadline unless confirmed
 src/fw/saved.js           the state as a module, restored at start
 src/fw/interfaces.js      the host's interfaces, from yeet's system graph
 src/metrics/document.js   status + stats -> a yeet:telemetry document (pure)
@@ -260,7 +290,15 @@ src/ui/panel.jsx          a box with its title in the border, and the scrolling 
 src/ui/line.jsx           a row drawn, and rows aligned into columns
 src/ui/feed.js            its line to the worker, asked once a second
 
-test/                     `yeet test` cases
+completions/              bash and zsh completion: thin, `pfw __complete` does the work
+contrib/                  a Prometheus scrape job and alerts, a Grafana dashboard
+assets/                   the diagrams, as Mermaid
+
+test/*.test.js            `yeet test` cases
+test/cli.sh               the command without a firewall
+test/e2e.sh               the command and a firewall, with real traffic
+test/scratch.sh           a scratch firewall to run either against
+test/ui.sh                the metrics app, in a tmux pane
 build/                    toolchain glue, from the yeet project template
 ```
 
@@ -280,6 +318,14 @@ build/                    toolchain glue, from the yeet project template
   `state_file`.
 - **Leading and trailing spaces in a text run are trimmed** by the terminal
   toolkit. The dashboard uses non-breaking spaces where a space must stay.
+- **`die` inside `$(...)` ends only the subshell.** A refusal there has to be
+  caught where the substitution is: `names=$(chosen "$1") || exit 1`. Never
+  `for each in $(something that may die)`.
+- **A pipe into `ask` loses the reply**, which is a shell variable: the last
+  stage of a pipe runs in a subshell. Send from a here-document or a file.
+- **A trial's snapshot is taken before its change**, and the time is parsed
+  before either, so a bad time or a policy that does not compile changes
+  nothing and starts no trial.
 - **The palette is in two places**: `src/ctl/render/palette.js` for what the
   service renders, and the top of `bin/pfw` for what the command renders.
 
@@ -289,8 +335,8 @@ build/                    toolchain glue, from the yeet project template
 make pkg
 ```
 
-makes `pkg/pfw.tar.gz`: `bin/pfw` and `share/pfw/`, laid out as a prefix
-holds them, so installing is unpacking. Its bundles are minified.
+makes `pkg/pfw.tar.gz`: `bin/pfw`, `share/pfw/` and the two completion
+files, laid out as a prefix holds them, so installing is unpacking. Its bundles are minified.
 
 One package serves every architecture. The bundles are JavaScript, the
 command is a shell script, and the engine (`vm.bpf.o`) is BPF bytecode, which

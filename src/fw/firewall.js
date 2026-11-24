@@ -5,6 +5,7 @@ import { PfwVm } from "pfw-core/loader";
 
 import { Knobs } from "#/fw/knobs.js";
 import { Rates } from "#/fw/rates.js";
+import { Trial } from "#/fw/trial.js";
 
 // The counters of `PfwVm.stats()` a report carries.
 const COUNTERS = ["seen", "passed", "dropped", "rsts", "bans", "faults"];
@@ -21,6 +22,11 @@ export class Firewall {
   #knobs;
   #shadow;
   #rates = new Rates();
+
+  // The policy before this one; undefined until there has been a change.
+  #previous;
+  #trial = new Trial((before) => this.#lapse(before));
+  #lapsedAt = null;
 
   constructor({ interfaces, object, base, knobs, shadow = false }) {
     this.#knobs = new Knobs(knobs);
@@ -66,6 +72,7 @@ export class Firewall {
    * across `apply`.
    */
   async setShadow(on) {
+    this.#lapsedAt = null;
     this.#shadow = on;
     await this.#vm?.setShadow(on);
   }
@@ -138,6 +145,8 @@ export class Firewall {
 
   // An atomic swap: flows and bans survive, rule counts start over.
   async enforce(policy) {
+    this.#lapsedAt = null;
+    this.#previous = this.#policy;
     this.#policy = policy;
     this.#appliedAt = Date.now();
     await this.#enforceOnVm();
@@ -146,8 +155,72 @@ export class Firewall {
   // Stops enforcing but stays attached; standing bans still apply.
   async clear() {
     await this.#vm?.clear();
+    this.#lapsedAt = null;
+    this.#previous = this.#policy;
     this.#policy = null;
     this.#appliedAt = null;
+  }
+
+  // What a trial goes back to: the policy and whether it only rehearses.
+  snapshot() {
+    return { policy: this.#policy, shadow: this.#shadow };
+  }
+
+  // What a restart should come back to: a change on trial is not kept.
+  get settled() {
+    return this.#trial.before ?? this.snapshot();
+  }
+
+  get previous() {
+    return this.#previous;
+  }
+
+  // The policy `rollback` returns to, as a restart left it.
+  remember(policy) {
+    this.#previous = policy;
+  }
+
+  // Into shadow before the policy changes and out of it after, so nothing
+  // is blocked on the way that neither state would block.
+  async #restore({ policy, shadow }) {
+    if (shadow) await this.setShadow(true);
+    if (policy) await this.enforce(policy);
+    else if (this.#policy) await this.clear();
+    if (!shadow) await this.setShadow(false);
+  }
+
+  /* Puts what was just changed on trial for `ms`: at the deadline the
+   * firewall goes back to `before`, the snapshot taken ahead of the change,
+   * unless `confirm` comes first.
+   */
+  tryFor(ms, before) {
+    this.#trial.begin(before, ms);
+  }
+
+  get trial() {
+    return this.#trial;
+  }
+
+  // Keeps what is on trial. False when nothing was.
+  confirm() {
+    return this.#trial.end() !== null;
+  }
+
+  async #lapse(before) {
+    await this.#restore(before).catch((error) => console.log(`pfw: could not go back after the trial: ${error?.message ?? error}`));
+    this.#lapsedAt = Date.now();
+    console.log("pfw: the trial was not confirmed: back to what was running before it");
+  }
+
+  /* Undoes the last change of policy. With a trial pending, that is the
+   * trial, now. Otherwise the policy before this one comes back, and this
+   * one becomes the one before, so a second rollback returns.
+   */
+  async rollback() {
+    const before = this.#trial.end();
+    if (before) return this.#restore(before);
+    if (this.#previous === undefined) throw new Error("There is nothing to roll back to");
+    return this.#previous ? this.enforce(this.#previous) : this.clear();
   }
 
   // One sample of the counters, for the speeds. Called once a second.
@@ -171,6 +244,7 @@ export class Firewall {
       started_at: this.#startedAt,
       interfaces: this.#interfaces,
       policy: this.#policy ? { ...this.#describe(this.#policy), applied_at: this.#appliedAt } : null,
+      on_trial: this.#trial.pending,
     };
   }
 
@@ -183,6 +257,15 @@ export class Firewall {
   async report(stats = null) {
     stats ??= await this.stats();
     const counters = Object.fromEntries(COUNTERS.map((key) => [key, stats[key] ?? 0n]));
-    return { ...this.status(), shadow: this.#shadow, shadowed: stats.shadowed ?? 0n, counters, rules: stats.rules };
+    return {
+      ...this.status(),
+      shadow: this.#shadow,
+      shadowed: stats.shadowed ?? 0n,
+      counters,
+      rules: stats.rules,
+      trial: this.#trial.pending ? { until: this.#trial.until } : null,
+      lapsed_at: this.#lapsedAt,
+      previous: this.#previous?.name ?? null,
+    };
   }
 }
