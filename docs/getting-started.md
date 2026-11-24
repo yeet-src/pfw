@@ -30,7 +30,7 @@ pfw status
 ```
 ● pfw  up 12s   on lo
   policy   none: passing everything
-  packets  48 seen   pass 0   drop 0   rst 0   ban 0
+  packets  48 seen   pass 0   drop 0   rst 0   cut off 0
 ```
 
 - **`up`** and the green dot: the firewall is running.
@@ -116,7 +116,7 @@ pfw status
 ```
 ● pfw  up 4m 10s   on eth0   shadow mode: nothing is blocked
   policy   rules:http/crawlers.pfc @ b58a001   shadow (dry run)   applied 2m ago
-  packets  1.9k seen   pass 1.9k   drop 0   rst 0   ban 0   would block 37
+  packets  1.9k seen   pass 1.9k   drop 0   rst 0   cut off 0   would block 37
   rules    crawler 37
 ```
 

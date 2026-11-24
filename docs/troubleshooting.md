@@ -188,6 +188,25 @@ The dashboard opens only on a terminal. Through a pipe, in a script, or with
 No command waits more than 30 seconds for the firewall. If one gives up, the
 firewall has stopped answering: `pfw restart`.
 
+### `pfw status` shows an `unread` line
+
+Segments arrived larger than the 2 KB the engine reads, and the rest of each
+passed uninspected. It happens on `lo`, where a segment can be 64 KB. A
+policy that looks for text can be walked past this way. Attach pfw to the
+interface traffic arrives on instead. See
+[What pfw does not see](security.md#what-pfw-does-not-see).
+
+### Applying a policy reset my open connections
+
+The first time a policy that reassembles streams is applied, connections
+already open on the port it guards are reset once. See
+[Applying](policies.md#applying).
+
+### The blocked count is higher than the number of requests
+
+The counts are packets. See
+[What the numbers count](metrics.md#what-the-numbers-count).
+
 ### I enforced a policy and a while later it was rehearsing again
 
 It was on trial (`--confirm`) and nobody ran `pfw confirm`, so the firewall

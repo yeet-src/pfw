@@ -45,10 +45,22 @@ function packetsRow(p, { counters, shadow, shadowed }) {
     `${p.label("pass")} ${p.ok(count(counters.passed))}`,
     tally(p, "drop", counters.dropped),
     tally(p, "rst", counters.rsts),
-    tally(p, "ban", counters.bans),
+    // Not a fourth kind of packet: the connections and senders a rst or a
+    // ban was left standing on, which is nearer a count of requests.
+    tally(p, "cut off", counters.bans),
     // In a dry run, the count that matters: what would have been blocked.
     shadow && `${p.label("would block")} ${p.warn(count(shadowed))}`,
   ].filter(Boolean).join("   "));
+}
+
+/* A segment larger than the engine's window is read only as far as the
+ * window reaches, and the rest passes unread: a policy can be walked past.
+ * Loopback, which sends up to 64 KB at once, is where it happens.
+ */
+function unreadRow(p, { counters }) {
+  const partly = Number(counters.reasm_trunc ?? 0);
+  if (partly === 0) return null;
+  return row(p, "unread", `${p.bad(`${count(partly)} ${partly === 1 ? "segment was" : "segments were"} larger than the engine reads`)}   ${p.note("the rest of each passed uninspected: see pfw doctor")}`);
 }
 
 function rulesRow(p, rules) {
@@ -79,6 +91,7 @@ export function status(report, p, now = Date.now()) {
     knobsRow(p, report.policy),
     packetsRow(p, report),
     rulesRow(p, report.rules),
+    unreadRow(p, report),
     Number(report.counters.faults) > 0 && row(p, "faults", p.bad(plural(Number(report.counters.faults), "program fault"))),
   ].filter(Boolean).join("\n");
 }

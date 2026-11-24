@@ -10,7 +10,7 @@ import { quantile } from "#/fw/rates.js";
 // The slot pfw-core counts packets that ended on no rule under.
 const NO_RULE = "-";
 
-const VERDICTS = [["pass", "passed"], ["drop", "dropped"], ["rst", "rsts"], ["ban", "bans"]];
+const VERDICTS = [["pass", "passed"], ["drop", "dropped"], ["rst", "rsts"]];
 // Shown in their own sections, or as the unit of another counter.
 const ELSEWHERE = new Set(["seen", "passed", "dropped", "rsts", "bans", "decide_ns"]);
 const AS_BYTES = new Set(["scanned_bytes"]);

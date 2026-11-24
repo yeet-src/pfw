@@ -7,7 +7,8 @@ import { by, counter, gauge, histogram } from "yeet:telemetry";
 import { splitName } from "#/fw/name.js";
 
 // How a packet's run ended, by the `PfwVm.stats()` counter that tallies it.
-const VERDICTS = { pass: "passed", drop: "dropped", rst: "rsts", ban: "bans" };
+// Every packet is in exactly one. A `ban` drops, and is counted there.
+const VERDICTS = { pass: "passed", drop: "dropped", rst: "rsts" };
 
 const verdicts = (stats) =>
   Object.entries(VERDICTS).map(([verdict, key]) => [{ verdict }, stats[key] ?? 0n]);
@@ -75,6 +76,10 @@ export function document(status, stats) {
 
       packets_seen_total: counter({ help: "Packets that reached the XDP hook.", value: stats.seen }),
       packets_total: counter({ help: "Packets the policy decided, by verdict.", value: verdicts(stats) }),
+      cut_off_total: counter({
+        help: "Connections and senders a blocking verdict was left standing on: one for each rst or ban decided, however many packets it then stopped.",
+        value: stats.bans,
+      }),
       program_runs_total: counter({ help: "Packets the policy's program ran on.", value: stats.ran }),
       shadowed_total: counter({ help: "Packets a verdict would have blocked, passed because of shadow mode.", value: stats.shadowed }),
       standing_verdict_packets_total: counter({

@@ -99,12 +99,27 @@ pfw status
 ● pfw  up 3d 4h   on eth0
   policy   rules:http/crawlers.pfc @ b58a001   enforcing   applied 2h ago
   knobs    port 8080
-  packets  1.23M seen   pass 1.19M   drop 312   rst 4.1k   ban 17
+  packets  1.23M seen   pass 1.19M   drop 312   rst 4.1k   cut off 17
   rules    crawler 4.1k
 ```
 
 It exits with a non-zero status when pfw is down or does not answer, so it
 doubles as a health check in a script.
+
+### What the numbers count
+
+They are **packets, not requests**. One blocked request is usually several
+packets: the one that was caught, and the retries the client sends before
+it gives up. So `rst 12` can be three requests, and in shadow mode `would
+block 10` can be two.
+
+`cut off` is the nearest thing to a count of requests: the connections and
+senders a `rst` or `ban` verdict was left standing on, one for each, however
+many packets followed. It is not a fourth kind of packet, and is not added
+to `blocked`: blocked is `drop` plus `rst`.
+
+An `unread` line appears when segments arrived larger than the engine reads.
+See [What pfw does not see](security.md#what-pfw-does-not-see).
 
 ## Prometheus
 
@@ -145,7 +160,8 @@ Traffic:
 | metric | meaning |
 |---|---|
 | `pfw_packets_seen_total` | packets that reached pfw |
-| `pfw_packets_total{verdict}` | packets by verdict: `pass`, `drop`, `rst`, `ban` |
+| `pfw_packets_total{verdict}` | packets by verdict: `pass`, `drop`, `rst`. Each packet is in one; a `ban` drops, and is counted as a drop |
+| `pfw_cut_off_total` | connections and senders a `rst` or `ban` was left standing on: one for each, however many packets it then stopped |
 | `pfw_program_runs_total` | packets the policy ran on |
 | `pfw_shadowed_total` | packets that would have been blocked, in shadow mode |
 | `pfw_standing_verdict_packets_total{scope}` | packets decided by a verdict already standing, on their `flow` or `source` |
@@ -189,6 +205,8 @@ Grafana dashboard beside them in
 - `rate(pfw_faults_total[5m]) > 0`.
 - `rate(pfw_events_dropped_total[5m]) > 0`.
 - A rise in `pfw_reassembly_total{event=~"oversize|truncated"}`: traffic pfw
-  cannot fully see.
+  cannot fully see. `truncated` is segments read only in part, and `pfw
+  status` shows it as an `unread` line. See
+  [What pfw cannot see](security.md#what-pfw-does-not-see).
 
 Rates are for Prometheus to work out: `rate(pfw_packets_total[1m])`.

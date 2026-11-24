@@ -48,7 +48,14 @@ that looks for text in a request will never match.
 |---|---|---|
 | plain HTTP on this machine | yes | use the port it listens on |
 | HTTPS ends at a load balancer or CDN, which forwards plain HTTP here | yes | use the port the forwarded traffic arrives on |
-| HTTPS ends on this machine (nginx, Caddy, etc. with a certificate here) | no, not on the public port | pfw can still filter by port and address; for content rules, run it where the traffic is plain |
+| HTTPS ends on this machine (nginx, Caddy, etc. with a certificate here) | no, not on the public port | pfw can still filter by port and address; for content rules, run it where the traffic is plain. If that is `lo` on this machine, read the limit below first |
+
+**A limit on `lo`.** pfw reads the first 2 KB of each segment. On a network
+card that is the whole segment. On loopback a segment can be 64 KB, so a
+request padded past 2 KB is not read there, and a content policy can be
+walked past. If your plain traffic exists only between a TLS terminator and
+an app on the same machine, pfw on `lo` is a partial guard, not a complete
+one. `pfw status` shows an `unread` line when it has happened.
 
 **Check:** you have an interface name, a port, and you know the traffic on
 that port is not encrypted.
@@ -226,7 +233,7 @@ pfw status
 ```
 
 ```
-  packets  210k seen   pass 210k   drop 0   rst 0   ban 0   would block 1.4k
+  packets  210k seen   pass 210k   drop 0   rst 0   cut off 0   would block 1.4k
   rules    crawler 1.4k
 ```
 
@@ -269,7 +276,7 @@ does not depend on your terminal staying open.
 
 - your site loads;
 - you can still log in to the machine;
-- `pfw status` says `enforcing`, and `drop`, `rst` or `ban` are counting.
+- `pfw status` says `enforcing`, and `drop` or `rst` are counting.
 
 **If anything is wrong:**
 

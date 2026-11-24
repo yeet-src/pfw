@@ -150,6 +150,12 @@ pfw apply                            # lists them and asks
   and the one running stays in place.
 - **It swaps in at once.** The next packet meets the new policy. Connections
   already being tracked, and standing bans, carry over.
+- **A first policy that reassembles streams resets what is open on its
+  port.** Most of the public policies follow a connection from its start so
+  they can read a request split across packets. Going from no such policy to
+  one, connections already open on the guarded port are reset once, since
+  pfw joined them in the middle; clients reconnect. Swapping one such policy
+  for another, changing a knob, and traffic on other ports drop nothing.
 - **Rule counts start from zero** for the new policy.
 - **It is remembered.** After a restart pfw comes back enforcing it.
 

@@ -408,7 +408,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(pfw_packets_total{instance=~\"$instance\",verdict=~\"drop|rst|ban\"}[$__rate_interval]))",
+          "expr": "sum(rate(pfw_packets_total{instance=~\"$instance\",verdict=~\"drop|rst\"}[$__rate_interval]))",
           "legendFormat": "blocked"
         },
         {

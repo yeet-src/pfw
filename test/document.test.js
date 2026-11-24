@@ -50,6 +50,7 @@ const EXPORTED = [
   "pfw_knob",
   "pfw_packets_seen_total",
   "pfw_packets_total",
+  "pfw_cut_off_total",
   "pfw_program_runs_total",
   "pfw_shadowed_total",
   "pfw_standing_verdict_packets_total",
@@ -132,4 +133,11 @@ test("numeric knobs are gauges; a string knob is not", async () => {
 
   assert(text.includes('pfw_knob{policy="rules:http/log4shell.pfc",knob="port"} 8080'));
   assert(!text.includes("bad_host"));
+});
+
+test("a packet is counted under one verdict, and a verdict left standing apart", async () => {
+  const text = await render(document(STATUS, { ...STATS, rsts: 96n, bans: 96n }));
+  assert(text.includes('pfw_packets_total{verdict="rst"} 96'));
+  assert(!text.includes('verdict="ban"'));
+  assert(text.includes("pfw_cut_off_total 96"));
 });

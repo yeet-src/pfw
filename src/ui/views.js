@@ -9,7 +9,7 @@ import { NBSP, columns } from "#/ui/line.jsx";
 
 // The slot pfw-core counts packets that ended on no rule under.
 const NO_RULE = "-";
-const VERDICTS = [["pass", "passed"], ["drop", "dropped"], ["rst", "rsts"], ["ban", "bans"]];
+const VERDICTS = [["pass", "passed"], ["drop", "dropped"], ["rst", "rsts"]];
 const DOT = `${NBSP}·${NBSP}`;
 
 export const num = (v) => Number(v ?? 0);
@@ -39,7 +39,7 @@ export function status({ report }, now) {
 
 // The far end of the status bar: what has come through, and what was stopped.
 export function totals({ stats }) {
-  const blocked = num(stats.dropped) + num(stats.rsts) + num(stats.bans);
+  const blocked = num(stats.dropped) + num(stats.rsts);
   return [
     ["note", `seen${NBSP}`], ["strong", count(num(stats.seen))], ["frame", DOT],
     ["note", `blocked${NBSP}`], [blocked > 0 ? "warn" : "strong", count(blocked)],
@@ -273,7 +273,7 @@ const GROUPS = [
   ["http/2", ["h2_blocks", "h2_raw", "h2_unresolved", "h2_trunc", "h2_failed"]],
 ];
 const UNITS = { scanned_bytes: bytes, decide_ns: nanos };
-const NAMES = { decide_ns: "time deciding", scanned_bytes: "scanned", src_enforced: "by source ban", enforced: "by flow verdict" };
+const NAMES = { decide_ns: "time deciding", scanned_bytes: "scanned", src_enforced: "by source ban", enforced: "by flow verdict", bans: "cut off", reasm_trunc: "partly read" };
 const TROUBLE = new Set(["faults", "ring_full", "reasm_over", "reasm_trunc", "h2_failed"]);
 
 const GROUP_WIDTH = 24;

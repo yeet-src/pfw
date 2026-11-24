@@ -79,9 +79,18 @@ groups:
           summary: pfw is losing events on {{ $labels.instance }}
           description: The policy logs faster than the host reads. Verdicts are not affected; the event stream has gaps.
 
+      - alert: PfwPartlyInspected
+        expr: rate(pfw_reassembly_total{event="truncated"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: pfw is reading only part of some traffic on {{ $labels.instance }}
+          description: Segments larger than the engine's 2 KB window are inspected only that far, and the rest passes unread, so a policy can be walked past. It happens on loopback, where a segment can be 64 KB. Attach pfw to the interface traffic arrives on, not lo. `pfw doctor` says more.
+
       - alert: PfwBlockingSurge
         expr: |
-          sum by (instance) (rate(pfw_packets_total{verdict=~"drop|rst|ban"}[5m]))
+          sum by (instance) (rate(pfw_packets_total{verdict=~"drop|rst"}[5m]))
             > 0.2 * sum by (instance) (rate(pfw_packets_seen_total[5m]))
           and sum by (instance) (rate(pfw_packets_seen_total[5m])) > 10
         for: 10m

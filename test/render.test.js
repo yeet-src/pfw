@@ -34,7 +34,7 @@ test("status shows the policy, the verdicts and the busiest rules first", () => 
 
   assert(text.includes("● pfw  up 3d 4h   on eth0"));
   assert(text.includes("acme:edge/waf.pfc @ a1b2c3d   enforcing   applied 2h ago"));
-  assert(text.includes("1.23M seen   pass 1.19M   drop 312   rst 4.1k   ban 0"));
+  assert(text.includes("1.23M seen   pass 1.19M   drop 312   rst 4.1k   cut off 0"));
   assert(text.includes("  knobs    port 8080\n"));
   assert(text.includes("sqli 3.9k   crawler 212"));
   assert(!text.includes("- 9"));
@@ -212,5 +212,16 @@ test("shadow mode is said on the first line, with what would have been blocked",
 
   assert(text.includes("on eth0   shadow mode: nothing is blocked"));
   assert(text.includes("shadow (dry run)"));
-  assert(text.includes("ban 0   would block 329"));
+  assert(text.includes("cut off 0   would block 329"));
+});
+
+test("blocked is drops and resets: a verdict left standing is not a third packet", () => {
+  const text = status({ ...REPORT, counters: { ...REPORT.counters, dropped: 0n, rsts: 96n, bans: 96n } }, plain, NOW);
+  assert(text.includes("drop 0   rst 96   cut off 96"));
+});
+
+test("status says when segments were only partly read, and not otherwise", () => {
+  assert(!status(REPORT, plain, NOW).includes("unread"));
+  const text = status({ ...REPORT, counters: { ...REPORT.counters, reasm_trunc: 12n } }, plain, NOW);
+  assert(text.includes("  unread   12 segments were larger than the engine reads   the rest of each passed uninspected: see pfw doctor"));
 });

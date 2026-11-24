@@ -1017,6 +1017,16 @@ doctor() {
 		*) good 'policy' "$(printf '%s\n' "$reply" | sed -n '2s/^ *policy *//p' | sed 's/   .*//')" ;;
 		esac
 		case $reply in *'shadow mode'*) warned 'shadow' 'on: verdicts are counted, nothing is blocked' 'pfw unshadow enforces' ;; esac
+		# The engine reads 2 KB of a segment, and loopback sends up to 64 KB at once.
+		case $reply in
+		*'none: passing everything'*) ;;
+		*)
+			if printf '%s\n' "$reply" | sed -n '1s/.*   on //p' | sed 's/   shadow.*//' | tr ',' '\n' | tr -d ' ' | grep -qx lo; then
+				warned 'loopback' 'a policy on lo reads only the first 2 KB of each segment' 'a segment there can be 64 KB, so a padded request passes unread: attach to the interface traffic arrives on'
+			fi
+			;;
+		esac
+		case $reply in *'  unread '*) failed 'unread' 'segments larger than the engine reads have passed partly uninspected' 'a policy that looks for text can be walked past: move it off lo, onto the interface traffic arrives on' ;; esac
 
 		if query saved; then
 			reply=${reply#*"
