@@ -8,7 +8,7 @@
 #   make install   — install pfw into $(PREFIX)/bin and the built service into
 #                    $(PREFIX)/share/pfw, where `pfw up` finds it (default /usr/local)
 #   make uninstall — remove both
-#   make pkg       — pack the command and dist/ into pkg/<name>-<version>.tar.gz, for install.sh
+#   make pkg       — pack the command and the service into pkg/pfw-linux-<arch>.tar.gz, for install.sh
 #   make update    — move the pfw-core clone to the newest commit of its ref
 #   make clean     — remove build artifacts (keeps the pfw-core clone)
 #   make distclean — clean, and remove the pfw-core clone too
@@ -43,7 +43,6 @@ BUILD_START := $(shell date +%s%N 2>/dev/null)
 
 NAME    := $(or $(shell sed -n 's/^  "name": "\(.*\)",$$/\1/p' package.json),$(notdir $(CURDIR)))
 VERSION := $(or $(shell sed -n 's/^  "version": "\(.*\)",$$/\1/p' package.json),0.0.0)
-TARBALL := pkg/$(NAME)-$(VERSION).tar.gz
 
 PFW_CORE_REPO ?= git@github.com:yeet-src/pfw-core.git
 PFW_CORE_REF  ?= master
@@ -138,11 +137,19 @@ uninstall:
 
 # The package install.sh installs: the command and the service's files, laid
 # out as a prefix holds them (bin/pfw, share/pfw/), so installing is
-# unpacking. pkg/pfw.tar.gz is the same tarball under the name a release
-# publishes it by.
+# unpacking. The bundles are built again, minified, straight into it. It is
+# named for the machine it was built on, because it holds a compiled
+# vm.bpf.o: a release carries one for each architecture.
+PACKAGE := pkg/$(NAME)-linux-$(UNAME_M).tar.gz
+STAGE   := pkg/stage
+
 pkg: all
-	$(call step,pkg,$(TARBALL),rm -rf pkg/stage && mkdir -p pkg/stage/bin pkg/stage/share && cp -R dist pkg/stage/share/$(NAME) && install -m 0755 bin/pfw pkg/stage/bin/pfw && tar -czf $(TARBALL) -C pkg/stage bin share && cp $(TARBALL) pkg/$(NAME).tar.gz && rm -rf pkg/stage)
-	$(call artifact,$(TARBALL))
+	$(call step,pkg,$(PACKAGE),rm -rf $(STAGE) && mkdir -p $(STAGE)/bin $(STAGE)/share/$(NAME)/bin \
+		&& $(ESBUILD) $(ENTRIES) $(ESBUILD_FLAGS) --minify --outdir=$(STAGE)/share/$(NAME) \
+		&& cp dist/bin/vm.bpf.o $(STAGE)/share/$(NAME)/bin/ && cp dist/service.toml $(STAGE)/share/$(NAME)/ \
+		&& install -m 0755 bin/pfw $(STAGE)/bin/pfw \
+		&& tar -czf $(PACKAGE) -C $(STAGE) bin share && rm -rf $(STAGE))
+	$(call artifact,$(PACKAGE))
 
 clean:
 	$(call status,clean,node_modules)

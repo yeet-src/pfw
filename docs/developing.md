@@ -14,7 +14,7 @@ make apply       # pfw up on dist/: create or update the service, and start it
 make remove      # stop and remove the service
 make install     # pfw into $(PREFIX)/bin, the service into $(PREFIX)/share/pfw
 make uninstall
-make pkg         # pkg/pfw-<version>.tar.gz, and pkg/pfw.tar.gz: what install.sh installs
+make pkg         # pkg/pfw-linux-<arch>.tar.gz: what install.sh installs
 make update      # move the pfw-core clone to its ref's newest commit
 make clean       # remove build output (keeps the pfw-core clone)
 make distclean   # and the clone
@@ -161,11 +161,17 @@ build/                    toolchain glue, from the yeet project template
 make pkg
 ```
 
-makes `pkg/pfw.tar.gz`: `bin/pfw` and `share/pfw/`, laid out as a prefix
-holds them, so installing is unpacking. `install.sh` installs that tarball,
-from `--package`, or from the latest GitHub release's `pfw.tar.gz` when run
-outside a checkout.
+makes `pkg/pfw-linux-<arch>.tar.gz`: `bin/pfw` and `share/pfw/`, laid out as
+a prefix holds them, so installing is unpacking. Its bundles are minified.
 
-The tarball holds a compiled `vm.bpf.o`, which is built for the machine that
-made it. A release for more than one CPU architecture needs a package for
-each.
+The package holds a compiled `vm.bpf.o`, so it is named for the machine that
+built it (`x86_64`, `aarch64`), and a release carries one for each. Run
+outside a checkout, `install.sh` downloads the one for the machine it is on
+from the latest GitHub release, and says so when there is none.
+
+To cut a release, build the package on each architecture and attach them:
+
+```sh
+make pkg
+gh release create v0.1.0 pkg/pfw-linux-*.tar.gz --title "pfw 0.1.0"
+```

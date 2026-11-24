@@ -25,7 +25,7 @@ What it does, in order, stopping at the first thing it cannot put right:
 | yeet | finds yeet; when it is missing, installs it with `curl -fsSL https://yeet.cx \| sh` |
 | login | checks this machine is logged in to yeet; when it is not, runs `yeet login` |
 | daemon | checks yeet's background service answers |
-| pfw | downloads the pfw package |
+| pfw | downloads the pfw package for this machine's architecture |
 | install | puts `pfw` in `/usr/local/bin` and the service's files in `/usr/local/share/pfw`, with `sudo` |
 | doctor | runs `pfw doctor` and shows you the result |
 | up | starts the firewall |
