@@ -14,7 +14,7 @@ make apply       # pfw up on dist/: create or update the service, and start it
 make remove      # stop and remove the service
 make install     # pfw into $(PREFIX)/bin, the service into $(PREFIX)/share/pfw
 make uninstall
-make pkg         # pkg/pfw-linux-<arch>.tar.gz: what install.sh installs
+make pkg         # pkg/pfw.tar.gz: what install.sh installs
 make update      # move the pfw-core clone to its ref's newest commit
 make clean       # remove build output (keeps the pfw-core clone)
 make distclean   # and the clone
@@ -31,7 +31,7 @@ actually runs.
 ### pfw-core
 
 The engine is [pfw-core](https://github.com/yeet-src/pfw-core). The build
-clones it from `git@github.com:yeet-src/pfw-core.git` at `PFW_CORE_REF`
+clones it from `https://github.com/yeet-src/pfw-core.git` at `PFW_CORE_REF`
 (default `master`) into `.deps/`, builds its `vm.bpf.o` there, and links it
 into `node_modules` so both esbuild and the yeet runtime resolve `pfw-core`
 as an installed package.
@@ -161,17 +161,17 @@ build/                    toolchain glue, from the yeet project template
 make pkg
 ```
 
-makes `pkg/pfw-linux-<arch>.tar.gz`: `bin/pfw` and `share/pfw/`, laid out as
-a prefix holds them, so installing is unpacking. Its bundles are minified.
+makes `pkg/pfw.tar.gz`: `bin/pfw` and `share/pfw/`, laid out as a prefix
+holds them, so installing is unpacking. Its bundles are minified.
 
-The package holds a compiled `vm.bpf.o`, so it is named for the machine that
-built it (`x86_64`, `aarch64`), and a release carries one for each. Run
-outside a checkout, `install.sh` downloads the one for the machine it is on
-from the latest GitHub release, and says so when there is none.
+One package serves every architecture. The bundles are JavaScript, the
+command is a shell script, and the engine (`vm.bpf.o`) is BPF bytecode, which
+the kernel loads the same on any of them.
 
-To cut a release, build the package on each architecture and attach them:
+Run outside a checkout, `install.sh` downloads `pfw.tar.gz` from the latest
+GitHub release. To cut one:
 
 ```sh
 make pkg
-gh release create v0.1.0 pkg/pfw-linux-*.tar.gz --title "pfw 0.1.0"
+gh release create v0.1.0 pkg/pfw.tar.gz --title "pfw 0.1.0"
 ```

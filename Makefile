@@ -8,7 +8,7 @@
 #   make install   — install pfw into $(PREFIX)/bin and the built service into
 #                    $(PREFIX)/share/pfw, where `pfw up` finds it (default /usr/local)
 #   make uninstall — remove both
-#   make pkg       — pack the command and the service into pkg/pfw-linux-<arch>.tar.gz, for install.sh
+#   make pkg       — pack the command and the service into pkg/pfw.tar.gz, for install.sh
 #   make update    — move the pfw-core clone to the newest commit of its ref
 #   make clean     — remove build artifacts (keeps the pfw-core clone)
 #   make distclean — clean, and remove the pfw-core clone too
@@ -44,7 +44,9 @@ BUILD_START := $(shell date +%s%N 2>/dev/null)
 NAME    := $(or $(shell sed -n 's/^  "name": "\(.*\)",$$/\1/p' package.json),$(notdir $(CURDIR)))
 VERSION := $(or $(shell sed -n 's/^  "version": "\(.*\)",$$/\1/p' package.json),0.0.0)
 
-PFW_CORE_REPO ?= git@github.com:yeet-src/pfw-core.git
+PFW_CORE_REPO ?= https://github.com/yeet-src/pfw-core.git
+# The host's git fetches it: the toolchain's static git has no https helper.
+FETCH_GIT := $(or $(shell command -v git 2>/dev/null),$(GIT))
 PFW_CORE_REF  ?= master
 PFW_CORE_CLONE := .deps/pfw-core
 PFW_CORE ?= $(PFW_CORE_CLONE)
@@ -63,11 +65,11 @@ all: dist/index.js dist/bin/vm.bpf.o dist/service.toml
 	$(call artifact,dist/service.toml)
 
 $(abspath $(PFW_CORE_CLONE))/package.json:
-	$(call step,clone,$(PFW_CORE_CLONE) ($(PFW_CORE_REF)),mkdir -p .deps && $(GIT) clone --quiet --depth 1 --branch $(PFW_CORE_REF) $(PFW_CORE_REPO) $(PFW_CORE_CLONE))
+	$(call step,clone,$(PFW_CORE_CLONE) ($(PFW_CORE_REF)),mkdir -p .deps && $(FETCH_GIT) clone --quiet --depth 1 --branch $(PFW_CORE_REF) $(PFW_CORE_REPO) $(PFW_CORE_CLONE))
 
 update:
 	@[ -d $(PFW_CORE_CLONE)/.git ] || { $(call fail,no clone at $(PFW_CORE_CLONE) to update — run make first); }
-	$(call step,update,$(PFW_CORE_CLONE) ($(PFW_CORE_REF)),$(GIT) -C $(PFW_CORE_CLONE) fetch --quiet --depth 1 origin $(PFW_CORE_REF) && $(GIT) -C $(PFW_CORE_CLONE) checkout --quiet --detach FETCH_HEAD && rm -f $(PFW_CORE_CLONE)/bin/vm.bpf.o $(CORE_STAMP))
+	$(call step,update,$(PFW_CORE_CLONE) ($(PFW_CORE_REF)),$(FETCH_GIT) -C $(PFW_CORE_CLONE) fetch --quiet --depth 1 origin $(PFW_CORE_REF) && $(FETCH_GIT) -C $(PFW_CORE_CLONE) checkout --quiet --detach FETCH_HEAD && rm -f $(PFW_CORE_CLONE)/bin/vm.bpf.o $(CORE_STAMP))
 
 # Relinked on every build, so changing PFW_CORE takes effect.
 node_modules/pfw-core: $(PFW_CORE_ABS)/package.json FORCE
@@ -137,10 +139,10 @@ uninstall:
 
 # The package install.sh installs: the command and the service's files, laid
 # out as a prefix holds them (bin/pfw, share/pfw/), so installing is
-# unpacking. The bundles are built again, minified, straight into it. It is
-# named for the machine it was built on, because it holds a compiled
-# vm.bpf.o: a release carries one for each architecture.
-PACKAGE := pkg/$(NAME)-linux-$(UNAME_M).tar.gz
+# unpacking. The bundles are built again, minified, straight into it. One
+# package serves every architecture: the engine is BPF bytecode, which the
+# kernel loads the same on any of them.
+PACKAGE := pkg/$(NAME).tar.gz
 STAGE   := pkg/stage
 
 pkg: all

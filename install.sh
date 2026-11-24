@@ -26,7 +26,7 @@
 set -eu
 
 YEET_INSTALLER=https://yeet.cx
-RELEASES=https://github.com/yeet-src/pfw/releases/latest/download
+RELEASE=https://github.com/yeet-src/pfw/releases/latest/download/pfw.tar.gz
 
 prefix=/usr/local
 package=${PFW_PACKAGE:-}
@@ -187,20 +187,11 @@ elif [ -n "$tree" ]; then
 		tail -n 20 "$work/build.log" >&2
 		die 'pfw' 'the build failed' "run make in $tree to see it whole"
 	}
-	unpack "$(ls -t "$tree"/pkg/pfw-linux-*.tar.gz | head -n 1)"
+	unpack "$tree/pkg/pfw.tar.gz"
 	step 'pfw' "built from $tree"
 else
-	# A package holds a compiled engine, so there is one for each architecture.
-	machine=$(uname -m)
-	case $machine in
-	arm64) machine=aarch64 ;;
-	amd64) machine=x86_64 ;;
-	esac
-	command -v curl >/dev/null 2>&1 || die 'pfw' 'curl is needed to download the package' 'install curl, or pass --package FILE'
-	curl -fsSLI "$RELEASES/pfw-linux-$machine.tar.gz" >/dev/null 2>&1 ||
-		die 'pfw' "there is no released package for $machine yet" 'build it from the source instead: git clone https://github.com/yeet-src/pfw.git && cd pfw && ./install.sh'
-	fetch "$RELEASES/pfw-linux-$machine.tar.gz"
-	step 'pfw' "the latest release, for $machine"
+	fetch "$RELEASE"
+	step 'pfw' 'the latest release'
 fi
 
 # sudo only where the prefix is not ours to write.

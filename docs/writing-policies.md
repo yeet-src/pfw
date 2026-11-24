@@ -161,5 +161,8 @@ And what it cannot: it has no loops that run an unknown number of times, and
 every program has fixed budgets (64 patterns, 64 rules, and so on). That is
 what lets Linux prove a policy is safe to run on every packet.
 
-The full language is documented with
-[pfw-core](https://github.com/yeet-src/pfw-core), the engine pfw is built on.
+The full language is documented in
+[pfw-core](https://github.com/yeet-src/pfw-core), the engine pfw is built on:
+[the language reference](https://github.com/yeet-src/pfw-core/blob/master/docs/lang.md),
+and [more than a hundred example policies](https://github.com/yeet-src/pfw-core/tree/master/contrib)
+to start from.
