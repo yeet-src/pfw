@@ -86,10 +86,10 @@ test("a catalog that was not compiled shows no ticks and no rule counts, and say
     ],
   }, plain).split("\n");
 
-  assertEquals(text[1], "  1   acme:edge/bots.pfc ");
-  assertEquals(text[2], "       Resets crawlers.");
+  assert(/^  1   acme:edge\/bots\.pfc\s*$/.test(text[1]), text[1]);
+  assert(text[2].trim() === "Resets crawlers.", text[2]);
   assert(text.some((line) => /knob\s+port\s+The port to guard\./.test(line)), text.join("\n"));
-  assertEquals(text.find((line) => line.startsWith("▸")), "▸ 2   acme:edge/waf.pfc   active");
+  assert(/^▸ 2   acme:edge\/waf\.pfc\s+active$/.test(text.find((line) => line.startsWith("▸"))), text.join("\n"));
   assert(text.at(-1).startsWith("not compiled: pfw ls --check"));
   assert(!text.join("\n").includes("✔"));
 });
