@@ -9,15 +9,18 @@ On Linux. On macOS, inside the Lima VM (see the repository's `AGENTS.md`).
 
 ```sh
 make             # dist/: the four bundles, bin/vm.bpf.o and service.toml
-make test        # unit tests, under `yeet test`
-make apply       # pfw up on dist/: create or update the service, and start it
-make remove      # stop and remove the service
+make test        # unit tests under `yeet test`, and a syntax check of the shell scripts
+make up          # pfw up on dist/: create or update the service, and start it
+make down        # stop it
+make remove      # stop it and remove the service from yeet
+make e2e         # test/e2e.sh against the firewall that is up, on lo
 make install     # pfw into $(PREFIX)/bin, the service into $(PREFIX)/share/pfw
 make uninstall
 make pkg         # pkg/pfw.tar.gz: what install.sh installs
 make update      # move the pfw-core clone to its ref's newest commit
 make clean       # remove build output (keeps the pfw-core clone)
 make distclean   # and the clone
+make help        # the list of targets
 make V=1         # show the commands
 ```
 
@@ -62,7 +65,7 @@ Switching between the two forces a rebuild, so `dist/` never mixes them.
 ## Running a change
 
 ```sh
-make apply
+make up
 ```
 
 That is `PFW_SOURCE=dist bin/pfw up`. It applies `dist/` as the `pfw`
@@ -85,6 +88,64 @@ The tests in `test/` run under `yeet test`. They cover what is pure: the
 metrics document, the text renderers, policy metadata, knobs, speeds and
 percentiles, and the argument parsing. What touches the kernel is exercised
 by hand against a scratch service.
+
+`test/e2e.sh` (`make e2e`) is the end-to-end test: against an installed
+firewall on `lo` it starts a web server on loopback and asks for a page as a
+browser and as a crawler, with no policy, enforcing, in shadow mode, with a
+knob changed, after a restart and cleared. It changes the firewall on the
+host and stops it at the end, so outside CI it runs only with `PFW_E2E=yes`.
+
+## CI and releases
+
+`.github/workflows/ci.yml` runs on pull requests and on pushes to `master`
+and `release/*`, on x86_64 and on arm64:
+
+1. build, unit tests, package;
+2. `install.sh` with that package, from outside the checkout;
+3. `make e2e` against the firewall that installed.
+
+A last job checks that both architectures built a byte-identical
+`vm.bpf.o`, which is what lets one package serve both.
+
+**A push to `master` that passes is released.** There is no tagging by hand:
+CI works out the next version, publishes the package as that GitHub release,
+and marks it Latest, which is what `install.sh` downloads.
+
+### Versions
+
+Semver, `vMAJOR.MINOR.PATCH`, by the convention the other yeet repositories
+use. The bump comes from a `[bump:LEVEL]` marker in the commit **subject**
+(for a squash merge, the pull request's title):
+
+| marker | bump | notes |
+|---|---|---|
+| *(none)* or `[bump:minor]` | **minor** `X.Y+1.0` | the default |
+| `[bump:patch]` | **patch** `X.Y.Z+1` | only if **every** commit since the last release is `[bump:patch]` |
+| `[bump:major]` | **major** `X+1.0.0` | one such commit makes the release major |
+
+The release takes the highest level any commit since the last one asks for.
+`commit-convention.yml` rejects a malformed marker, like `[bump:pacth]`, on
+the pull request, so a typo cannot quietly ship as a minor.
+
+```sh
+git commit -m "fix the interface list on a host with none [bump:patch]"
+```
+
+The package says which release it is: `pfw --version`. A build of your own
+says `dev`.
+
+### Back-patching an older line
+
+To ship a fix on an older release while `master` has moved on, branch the
+line from its tag and merge fixes into it:
+
+```sh
+git branch release/v0.2 v0.2.0 && git push origin release/v0.2
+```
+
+A push to `release/*` runs the same workflow, versions within that line's
+tags only, takes an unmarked commit as a **patch**, and does not take Latest
+from the newer mainline release.
 
 The dashboard can be looked at without a screen by running it in tmux and
 capturing the pane:
@@ -155,7 +216,7 @@ build/                    toolchain glue, from the yeet project template
 - **The palette is in two places**: `src/ctl/render/palette.js` for what the
   service renders, and the top of `bin/pfw` for what the command renders.
 
-## Packaging and releasing
+## The package
 
 ```sh
 make pkg
@@ -166,12 +227,5 @@ holds them, so installing is unpacking. Its bundles are minified.
 
 One package serves every architecture. The bundles are JavaScript, the
 command is a shell script, and the engine (`vm.bpf.o`) is BPF bytecode, which
-the kernel loads the same on any of them.
-
-Run outside a checkout, `install.sh` downloads `pfw.tar.gz` from the latest
-GitHub release. To cut one:
-
-```sh
-make pkg
-gh release create v0.1.0 pkg/pfw.tar.gz --title "pfw 0.1.0"
-```
+the kernel loads the same on any of them. CI holds that to be true on every
+push.

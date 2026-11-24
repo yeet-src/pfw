@@ -43,6 +43,7 @@
 #   --json      print the service's reply as JSON
 #   --color     color even when the output is not a terminal
 #   --no-color  never color (as NO_COLOR does)
+#   --version   which release this is
 #   -h, --help  the help
 #
 #   pfw config ls              every setting, its value and where it came from
@@ -109,13 +110,14 @@ YEET=$(setting yeet)
 
 # ---- output -----------------------------------------------------------------
 
-format='' wants_help=''
+format='' wants_help='' wants_version=''
 while [ $# -gt 0 ]; do
 	case $1 in
 	--json) format=json ;;
 	--color) format=tty ;;
 	--no-color) format=plain ;;
 	-h | --help) wants_help=1 ;;
+	-V | --version) wants_version=1 ;;
 	*) break ;;
 	esac
 	shift
@@ -153,7 +155,7 @@ row() {
 }
 
 help() {
-	say "$(strong pfw)  $(note 'pull pfw-C policy from git and apply it to a pfw service')"
+	say "$(strong pfw) $(value "$(version)")  $(note 'pull pfw-C policy from git and apply it to a pfw service')"
 	say
 	say "$(label 'the service')"
 	row name 'pfw up' 'apply the pfw service from its build, and start it'
@@ -202,6 +204,7 @@ help() {
 	row value '--color' 'color even when the output is not a terminal'
 	row value '--no-color' 'never color, as NO_COLOR does'
 	row value '-h, --help' 'this message'
+	row value '--version' 'which release this is'
 	say
 	say "$(label 'setting keys')  $(note "kept in $PFW_CONFIG; PFW_URL and the like win over it")"
 	row value 'url' "the control route $(note "($PFW_URL)")"
@@ -235,7 +238,7 @@ find_yeet() {
 }
 # The commands that say what is wrong, or need no service, run without one.
 [ -n "$YEET" ] || YEET=$(find_yeet) || case ${1:-} in
-doctor | help | config | remote | '') YEET='' ;;
+doctor | help | version | config | remote | '') YEET='' ;;
 *) die "no runnable yeet on PATH: pfw doctor says what else is missing" ;;
 esac
 
@@ -610,6 +613,11 @@ save() {
 }
 
 # ---- the service's life -----------------------------------------------------
+
+# The release this pfw is, which its package says; `dev` for a build of one's own.
+version() {
+	stamped=$(service_source 2>/dev/null) && [ -f "$stamped/VERSION" ] && cat "$stamped/VERSION" || printf 'dev\n'
+}
 
 # Where the built service is: PFW_SOURCE, else beside this script as the
 # tree has it (../dist) or as `make install` puts it (../share/pfw).
@@ -994,6 +1002,10 @@ summary() {
 
 # ---- main -------------------------------------------------------------------
 
+if [ -n "$wants_version" ] || [ "${1:-}" = version ]; then
+	say "pfw $(version)"
+	exit 0
+fi
 if [ -n "$wants_help" ] || [ "${1:-}" = help ]; then
 	help
 	exit 0

@@ -1,24 +1,32 @@
 # Build the pfw service.
 #
-#   make           — build everything into dist/ (bundles + VM object + service file)
-#   make bundle    — bundle the four isolates with esbuild only
-#   make test      — run the unit tests under `yeet test`
-#   make apply     — `pfw up` on dist/: make the `pfw` service match it, and start it (needs yeetd)
-#   make remove    — stop and remove the `pfw` service
-#   make install   — install pfw into $(PREFIX)/bin and the built service into
-#                    $(PREFIX)/share/pfw, where `pfw up` finds it (default /usr/local)
-#   make uninstall — remove both
-#   make pkg       — pack the command and the service into pkg/pfw.tar.gz, for install.sh
-#   make update    — move the pfw-core clone to the newest commit of its ref
-#   make clean     — remove build artifacts (keeps the pfw-core clone)
-#   make distclean — clean, and remove the pfw-core clone too
-#   make V=1       — show the commands behind the status lines
+# Building
+#   make             build everything into dist/
+#   make test        the unit tests, and a syntax check of the shell scripts
+#   make pkg         pkg/pfw.tar.gz: the command and the service, for install.sh
+#   make update      move the pfw-core clone to the newest commit of its ref
+#   make clean       remove what was built (keeps the pfw-core clone)
+#   make distclean   and the clone too
+#
+# Running what was built, on this host (needs yeetd)
+#   make up          `pfw up` on dist/: make the service match it, and start it
+#   make down        stop it
+#   make remove      stop it and remove the service from yeet
+#   make e2e         test/e2e.sh against the firewall that is up, on `lo`
+#
+# Installing
+#   make install     pfw into $(PREFIX)/bin and the service into $(PREFIX)/share/pfw
+#   make uninstall   remove both
+#
+#   make help        this list
+#   make V=1 ...     show the commands behind the status lines
+#
+# To set a host up from nothing, yeet included, see install.sh.
 #
 # dist/ is the whole service: the keeper (index.js), the firewall worker
 # (firewall.js), the scrape isolate (scrape.js), the metrics app (ui.js),
-# bin/vm.bpf.o and
-# service.toml sit side by side, so `yeet service import dist` (or the packed tarball) needs
-# nothing else from this tree.
+# bin/vm.bpf.o and service.toml sit side by side, so `yeet service import
+# dist` needs nothing else from this tree.
 #
 # pfw-core is the firewall VM this service embeds. It is cloned from GitHub
 # at PFW_CORE_REF into .deps/ and its object built there; `make update`
@@ -42,7 +50,6 @@ include build/toolchain.mk
 BUILD_START := $(shell date +%s%N 2>/dev/null)
 
 NAME    := $(or $(shell sed -n 's/^  "name": "\(.*\)",$$/\1/p' package.json),$(notdir $(CURDIR)))
-VERSION := $(or $(shell sed -n 's/^  "version": "\(.*\)",$$/\1/p' package.json),0.0.0)
 
 PFW_CORE_REPO ?= https://github.com/yeet-src/pfw-core.git
 # The host's git fetches it: the toolchain's static git has no https helper.
@@ -110,17 +117,30 @@ bundle: dist/index.js
 dist/index.js: $(SOURCES) package.json $(PFW_CORE_ABS)/package.json $(CORE_STAMP) | node_modules/pfw-core toolchain
 	$(call step,bundle,$(BUNDLES),$(ESBUILD) $(ENTRIES) $(ESBUILD_FLAGS))
 
+SCRIPTS := bin/pfw install.sh test/e2e.sh
+
 test: node_modules/pfw-core
+	$(Q)for script in $(SCRIPTS); do sh -n $$script || exit 1; done
 	$(Q)$(YEET) test test
 
 # Through pfw, which knows a changed firewall must stop before its
 # replacement can take the XDP hook.
-apply: all
+up: all
 	$(Q)PFW_SOURCE=dist bin/pfw up
+
+down:
+	$(Q)bin/pfw down
 
 remove:
 	$(Q)$(YEET) service stop $(NAME) 2>/dev/null || true
 	$(Q)$(YEET) service remove $(NAME)
+
+# Against the pfw on PATH, and the firewall it drives: the one up on this host.
+e2e:
+	$(Q)sh test/e2e.sh
+
+help:
+	@sed -n '3,/^# To set a host up/p' Makefile | sed -e '$$d' -e 's/^# \{0,1\}//'
 
 # sudo only where the destination is not ours to write.
 PREFIX ?= /usr/local
@@ -144,12 +164,15 @@ uninstall:
 # kernel loads the same on any of them.
 PACKAGE := pkg/$(NAME).tar.gz
 STAGE   := pkg/stage
+# The version a package says it is: CI passes the release it is building.
+PKG_VERSION ?= dev
 
 pkg: all
 	$(call step,pkg,$(PACKAGE),rm -rf $(STAGE) && mkdir -p $(STAGE)/bin $(STAGE)/share/$(NAME)/bin \
 		&& $(ESBUILD) $(ENTRIES) $(ESBUILD_FLAGS) --minify --outdir=$(STAGE)/share/$(NAME) \
 		&& cp dist/bin/vm.bpf.o $(STAGE)/share/$(NAME)/bin/ && cp dist/service.toml $(STAGE)/share/$(NAME)/ \
 		&& install -m 0755 bin/pfw $(STAGE)/bin/pfw \
+		&& printf '%s\n' '$(PKG_VERSION)' > $(STAGE)/share/$(NAME)/VERSION \
 		&& tar -czf $(PACKAGE) -C $(STAGE) bin share && rm -rf $(STAGE))
 	$(call artifact,$(PACKAGE))
 
@@ -163,4 +186,4 @@ distclean: clean
 	$(call status,clean,.deps)
 	$(Q)rm -rf .deps
 
-.PHONY: all bundle test update distclean FORCE apply remove install uninstall pkg clean
+.PHONY: all bundle test update distclean FORCE up down remove e2e help install uninstall pkg clean

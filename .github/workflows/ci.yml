@@ -1,0 +1,244 @@
+name: ci
+
+# On pull requests and on pushes to master and release/*, on x86_64 and on
+# arm64:
+#
+#   build     the service and the package, and the unit tests
+#   install   the package with install.sh, as a user would
+#   e2e       a real firewall on loopback: a crawler is cut off, a browser is not
+#
+# then `same-everywhere` checks the two architectures built the same engine
+# object, which is what lets one package serve both.
+#
+# A push to master or release/* that passes all of that is released: the
+# package is published as the next version's GitHub release, which
+# install.sh downloads (releases/latest/download/pfw.tar.gz).
+#
+# Versions are semver vMAJOR.MINOR.PATCH, as the other yeet repositories do
+# it. The bump is the HIGHEST level any commit since the last release asks
+# for, via a [bump:*] marker in its SUBJECT (commit-convention.yml checks
+# them on pull requests):
+#   * [bump:major]   -> major  (X+1.0.0)
+#   * [bump:minor]   -> minor  (X.Y+1.0)
+#   * [bump:patch]   -> patch  (X.Y.Z+1)
+# An UNMARKED commit takes the branch default: minor on master, patch on a
+# release/* maintenance branch (where you're back-patching, and a minor could
+# collide with a mainline tag).
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - 'release/*'
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Per ref. A newer push to a pull request supersedes the run in progress;
+  # runs that may release are never cancelled.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    name: next version
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute next version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          CREATED: ${{ github.event.created }}
+        run: |
+          set -euo pipefail
+          # Only a push to master or a release/* line releases (and a manual
+          # run on one). Not a pull request, and not the push that creates a
+          # branch: opening a release/* line at an existing release commit
+          # has no new commits to release.
+          case "${GITHUB_REF_NAME:-}" in master|release/*) on_line=true ;; *) on_line=false ;; esac
+          if [ "$EVENT" = pull_request ] || [ "$on_line" = false ] || [ "$CREATED" = true ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+            echo "not a release run"
+            exit 0
+          fi
+
+          # Select the baseline by tag NAME: a release/vX.Y branch sees only its
+          # X.Y line, master sees all clean tags globally. Suffixed tags are
+          # excluded.
+          case "${GITHUB_REF_NAME:-}" in
+            release/v*) default_lvl=1   # maintenance line: unmarked -> patch
+                        mm="$(printf '%s' "${GITHUB_REF_NAME#release/v}" | cut -d. -f1,2 | sed 's/[.]/\\./g')"
+                        tagpat="^v${mm}(\.[0-9]+)?$" ;;
+            *)          default_lvl=2   # mainline: unmarked -> minor
+                        tagpat='^v[0-9]+\.[0-9]+(\.[0-9]+)?$' ;;
+          esac
+          # `|| true` so an empty tag set (no match) doesn't fail the pipeline
+          # under pipefail: that's the fresh-start case, which yields v0.1.0.
+          latest="$(git tag -l 'v[0-9]*' | { grep -E "$tagpat" || true; } | sed 's/^v//' | sort -V | tail -1)"
+          if [ -z "$latest" ]; then
+            next="0.1.0"
+          else
+            # No new commits since this line's latest release => nothing to do.
+            commits="$(git rev-list "v${latest}..HEAD")"
+            if [ -z "$commits" ]; then
+              echo "no new commits since v${latest}: nothing to release"
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              echo "tag=v${latest}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            maj=$(echo "$latest" | awk -F. '{print $1+0}')
+            min=$(echo "$latest" | awk -F. '{print $2+0}')
+            pat=$(echo "$latest" | awk -F. '{print $3+0}')   # missing patch -> 0
+            rank=0   # highest level seen: 1=patch 2=minor 3=major
+            while IFS= read -r sha; do
+              [ -n "$sha" ] || continue
+              msg="$(git log -1 --format=%s "$sha")"   # subject line only
+              if   printf '%s' "$msg" | grep -qi '\[bump:major\]'; then lvl=3
+              elif printf '%s' "$msg" | grep -qi '\[bump:minor\]'; then lvl=2
+              elif printf '%s' "$msg" | grep -qi '\[bump:patch\]'; then lvl=1
+              else lvl=$default_lvl; fi
+              [ "$lvl" -gt "$rank" ] && rank=$lvl
+            done <<< "$commits"
+            case "$rank" in
+              3) next="$((maj + 1)).0.0" ;;
+              2) next="${maj}.$((min + 1)).0" ;;
+              1) next="${maj}.${min}.$((pat + 1))" ;;
+            esac
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "tag=v${next}" >> "$GITHUB_OUTPUT"
+          echo "Next version: v${next}"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    name: build, install, e2e (${{ matrix.arch }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yeet
+        run: |
+          set -euo pipefail
+          # --no-phone-home: the installer otherwise reports the runner's OS
+          # version on exit.
+          curl -fsSL https://yeet.cx | sh -s -- --no-phone-home
+          for i in $(seq 1 30); do systemctl is-active --quiet yeetd && break; sleep 1; done
+          systemctl is-active yeetd
+          yeet version
+
+      - name: Build
+        run: make
+
+      - name: Unit tests
+        run: make test
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          # Stamped with the version this run will release as, or `dev`.
+          make pkg PKG_VERSION="${{ needs.version.outputs.tag }}"
+          tar -tzf pkg/pfw.tar.gz
+          sha256sum dist/bin/vm.bpf.o | cut -d ' ' -f 1 > vm.bpf.o.sha256
+          cat vm.bpf.o.sha256
+
+      - name: Install, as a user would
+        run: |
+          set -euo pipefail
+          # From outside the checkout, so install.sh installs the package and
+          # does not build. No login: CI has no account, and pfw needs none
+          # to run on this host.
+          cp install.sh "$RUNNER_TEMP/install.sh"
+          cd "$RUNNER_TEMP"
+          sh ./install.sh --package "$GITHUB_WORKSPACE/pkg/pfw.tar.gz" --no-login
+          command -v pfw
+          pfw --version
+
+      - name: End to end
+        run: make e2e
+
+      - name: What the service says, if that failed
+        if: failure()
+        run: |
+          pfw doctor || true
+          yeet service tree || true
+          yeet ps || true
+          sudo journalctl -u yeetd --no-pager -n 200 || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: object-${{ matrix.arch }}
+          path: vm.bpf.o.sha256
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.arch == 'x86_64'
+        with:
+          name: package
+          path: pkg/pfw.tar.gz
+          if-no-files-found: error
+
+  same-everywhere:
+    needs: build
+    runs-on: ubuntu-latest
+    name: one engine object for every architecture
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: object-*
+      - run: |
+          set -euo pipefail
+          cat object-*/vm.bpf.o.sha256
+          [ "$(cat object-*/vm.bpf.o.sha256 | sort -u | wc -l)" -eq 1 ] || {
+            echo "::error::the engine object differs between architectures, so one package cannot serve both"
+            exit 1
+          }
+
+  release:
+    needs: [version, build, same-everywhere]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    name: release ${{ needs.version.outputs.tag }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: pkg
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # The newest MAINLINE version is GitHub's "Latest", which is what
+          # .../releases/latest/download/pfw.tar.gz and so install.sh track.
+          # A release/* back-port must not take that from a newer mainline
+          # release, so it publishes with --latest=false.
+          if [ "${GITHUB_REF_NAME}" = master ]; then mk=--latest; else mk='--latest=false'; fi
+          gh release create "$TAG" pkg/pfw.tar.gz \
+            --title "pfw ${TAG#v}" \
+            --generate-notes \
+            --target "${GITHUB_SHA}" \
+            "$mk"
