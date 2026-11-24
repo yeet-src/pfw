@@ -1270,10 +1270,18 @@ setup() {
 # change it was asked for, and a trial going back. An isolate keeps no
 # history, so this is from now on.
 logs() {
-	internal=$("$YEET" service get "$PFW_SERVICE" 2>/dev/null | sed -n 's/^Service  *[^ ]* (\(.*\)).*/\1/p')
-	[ -n "$internal" ] || die "there is no $PFW_SERVICE service: pfw up creates it"
-	isolate=$("$YEET" ps 2>/dev/null | awk -v w="shared-worker:$internal:" 'index($0, w) { print $1; exit }')
-	[ -n "$isolate" ] || die "the $PFW_SERVICE service is not running, so it is saying nothing: pfw up starts it, pfw doctor says what is wrong"
+	described=$("$YEET" service get "$PFW_SERVICE" 2>&1) || die "there is no $PFW_SERVICE service: pfw up creates it"
+	internal=$(printf '%s\n' "$described" | sed -n 's/^Service  *[^ ]*  *(\([^)]*\)).*/\1/p' | head -n 1)
+	running=$("$YEET" ps 2>&1) || true
+	# The firewall is the service's shared worker: named for the service
+	# where yeet says so, else the one worker running firewall.js.
+	isolate=$(printf '%s\n' "$running" | awk -v w="shared-worker:$internal:" 'index($0, w) && /firewall\.js/ { print $1; exit }')
+	[ -n "$isolate" ] || isolate=$(printf '%s\n' "$running" | awk '/shared-worker:/ && /firewall\.js/ { n++; id = $1 } END { if (n == 1) print id }')
+	if [ -z "$isolate" ]; then
+		# What yeet said, for whoever has to work out why.
+		[ -z "${PFW_DEBUG:-}" ] || printf '%s\n%s\n' "$described" "$running" >&2
+		die "the $PFW_SERVICE service is not running, so it is saying nothing: pfw up starts it, pfw doctor says what is wrong"
+	fi
 	[ "$format" = json ] || printf '%s %s\n' "$(label '●')" "$(note "the firewall's log, from now on (Ctrl-C leaves; the firewall keeps running)")" >&2
 	exec "$YEET" attach -c "$isolate"
 }

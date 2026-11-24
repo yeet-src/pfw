@@ -421,14 +421,18 @@ jobs:
           if pfw uninstall </dev/null; then echo "::error::uninstall did not ask"; exit 1; fi
           command -v pfw
           pfw uninstall --yes --purge
-          ! command -v pfw
-          ! test -e /usr/local/share/pfw
-          ! test -e /var/lib/pfw
-          ! test -e /usr/local/share/bash-completion/completions/pfw
-          ! test -e "$HOME/.config/pfw"
-          ! test -e "$HOME/.cache/pfw"
-          ! yeet service list | grep -qw pfw
-          ! ip link show lo | grep -q xdp
+          sleep 2
+          # `! command` does not stop a script under `set -e`, so each is asked outright.
+          gone() { if "$@" >/dev/null 2>&1; then echo "::error::still there after uninstall: $*"; exit 1; fi; }
+          gone command -v pfw
+          gone test -e /usr/local/share/pfw
+          gone test -e /var/lib/pfw
+          gone test -e /usr/local/share/bash-completion/completions/pfw
+          gone test -e /usr/local/share/zsh/site-functions/_pfw
+          gone test -e "$HOME/.config/pfw"
+          gone test -e "$HOME/.cache/pfw"
+          gone sh -c 'yeet service list | grep -qw pfw'
+          gone sh -c 'ip link show lo | grep -q xdp'
           yeet version
       - name: What the service says, if that failed
         if: failure()

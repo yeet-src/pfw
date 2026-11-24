@@ -139,12 +139,13 @@ pfw status | grep -q 'rules:http/crawlers.pfc' || fail 'rollback did not return 
 expect 000 "$PORT" GPTBot 'rolled back: a crawler is cut off again'
 pfw apply rules:baseline/pass.pfc --confirm 10m
 expect 200 "$PORT" GPTBot 'a policy on trial: a crawler gets the page'
-pfw rollback | grep -q 'rolled back the trial' || fail 'rollback did not undo the trial'
+said=$(pfw rollback)
+case $said in *'rolled back the trial'*) ;; *) fail 'rollback did not undo the trial' ;; esac
 expect 000 "$PORT" GPTBot 'the trial rolled back: a crawler is cut off again'
 
 # What the firewall says as it is changed.
 log=$(mktemp)
-timeout 6 pfw logs >"$log" 2>&1 &
+PFW_DEBUG=1 timeout 6 pfw logs >"$log" 2>&1 &
 sleep 2
 pfw shadow >/dev/null
 pfw unshadow >/dev/null
