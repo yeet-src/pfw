@@ -1,6 +1,7 @@
 /* What the firewall is set to, across restarts: the interfaces it is
- * attached to, the policy it enforces and the knobs set per policy. An isolate has no storage, so the
- * state is kept as a JavaScript module on the host: `pfwctl` writes the
+ * attached to, the policy it enforces, the knobs set per policy and whether it is in shadow
+ * mode. An isolate has no storage, so the
+ * state is kept as a JavaScript module on the host: the `pfw` command writes the
  * module this service hands it, and the next start imports it back.
  */
 import { Policy } from "#/fw/policy.js";
@@ -17,6 +18,7 @@ export class SavedState {
       interfaces: firewall.interfaces.map((i) => i.name),
       policy: policy ? { name: policy.name, source: policy.source } : null,
       knobs: firewall.knobs,
+      shadow: firewall.shadow,
     })};\n`;
   }
 
@@ -32,7 +34,7 @@ export class SavedState {
   }
 
   // A saved policy that will not load is reported and left out: the
-  // firewall still comes up, and `pfwctl status` shows it enforcing nothing.
+  // firewall still comes up, and `pfw status` shows it enforcing nothing.
   async restorePolicy(firewall, saved) {
     if (!saved?.policy) return;
     try {

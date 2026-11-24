@@ -1,4 +1,4 @@
-/* The host's interfaces as `pfwctl attach` lists them, the attached ones
+/* The host's interfaces as `pfw attach` lists them, the attached ones
  * marked.
  */
 export function interfaces({ available, attached }, p) {

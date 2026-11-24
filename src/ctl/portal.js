@@ -1,6 +1,6 @@
 /* The `ctl` portal, served by the keeper: every peer sends one command and
  * gets one reply, then is closed. The command is read whole here and run in
- * the firewall worker; `bin/pfwctl` is the client, over `yeet dial`.
+ * the firewall worker; `bin/pfw` is the client, over `yeet dial`.
  */
 import { refusal } from "#/ctl/render/refusal.js";
 import { readHeader, readSources } from "#/ctl/request.js";

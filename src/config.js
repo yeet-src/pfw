@@ -1,6 +1,6 @@
 /* What the service was started with, from `yeet.args` (minimist-parsed).
  *
- *   --iface <name|ifindex>[,...]   interfaces to attach to until `pfwctl attach` says otherwise (default: lo)
+ *   --iface <name|ifindex>[,...]   interfaces to attach to until `pfw attach` says otherwise (default: lo)
  *   --object <path>                vm.bpf.o to load (default: bin/ beside the bundle)
  *   --state-file <path>            where the interfaces and policy are saved (default: /var/lib/pfw/state.js)
  */

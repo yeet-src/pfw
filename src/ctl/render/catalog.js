@@ -1,4 +1,4 @@
-/* Checked policies as the numbered list `pfwctl ls` prints and `pfwctl
+/* Checked policies as the numbered list `pfw ls` prints and `pfw
  * apply` picks from: whether each compiles, and which one is enforcing.
  */
 import { plural, splitName } from "#/ctl/render/format.js";
@@ -53,7 +53,7 @@ function dials(p, knobs) {
 }
 
 export function catalog({ entries, active, first = 1 }, p) {
-  if (entries.length === 0) return p.warn("no policies: pfwctl remote add NAME URL, then pfwctl pull");
+  if (entries.length === 0) return p.warn("no policies: pfw remote add NAME URL, then pfw pull");
 
   const activeSource = active ? splitName(active).source : null;
   const width = Math.max(...entries.map((e) => splitName(e.name).source.length));

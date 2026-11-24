@@ -9,5 +9,6 @@ export const READY = "ready";
 export const FAILED = "failed";
 export const CTL = "ctl";
 export const REPLY = "reply";
+export const VIEW = "view";
 
 export const message = (kind, fields = {}) => ({ pfw: kind, ...fields });

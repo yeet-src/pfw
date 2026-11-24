@@ -1,29 +1,34 @@
 #!/bin/sh
-# pfwctl — pull pfw-C policy from git repositories and apply it to a running
-# pfw service.
+# pfw — drive a pfw firewall service: pull pfw-C policy from git
+# repositories, apply it, and see what it is doing.
 #
-#   pfwctl up                     apply the pfw service from its build, and start it
-#   pfwctl down                   stop it: the interfaces are no longer filtered
-#   pfwctl restart                stop it and bring it up again, as it was left
-#   pfwctl status                 is the firewall up, and what is it enforcing
-#   pfwctl metrics                everything it has counted: verdicts, rules, timings
+#   pfw up                     apply the pfw service from its build, and start it
+#   pfw down                   stop it: the interfaces are no longer filtered
+#   pfw restart                stop it and bring it up again, as it was left
+#   pfw status                 is the firewall up, and what is it enforcing
+#   pfw doctor                 check everything pfw depends on, and say how to fix what fails
+#   pfw metrics                everything it has counted, and how fast: on a terminal,
+#                                 an app to explore it; piped, a page of text
 #
-#   pfwctl attach [IFACE[,IFACE]] attach to these interfaces as well; alone, list them
-#   pfwctl detach IFACE[,IFACE]   let go of these interfaces
+#   pfw attach [IFACE[,IFACE]] attach to these interfaces as well; alone, list them
+#   pfw detach IFACE[,IFACE]   let go of these interfaces
 #
-#   pfwctl remote add NAME URL [-r REF]   name a git repository of policies
-#   pfwctl remote ls                      the remotes, and the commit each is at
-#   pfwctl remote rm NAME                 forget one, and its clone
-#   pfwctl pull [NAME]                    fetch one remote, or all of them
-#   pfwctl ls [NAME]                      the policies, compiled, the enforcing one marked
+#   pfw remote add NAME URL [-r REF]   name a git repository of policies
+#                                         (`rules`, the public pfw-rules, is there to begin with)
+#   pfw remote ls                      the remotes, and the commit each is at
+#   pfw remote rm NAME                 forget one, and its clone
+#   pfw pull [NAME]                    fetch one remote, or all of them
+#   pfw ls [NAME]                      the policies, compiled, the enforcing one marked
 #
-#   pfwctl apply [POLICY]         compile one policy and enforce it (`load` is the same)
-#   pfwctl apply -f FILE          the same, from a local file
-#   pfwctl clear                  stop enforcing: everything passes
+#   pfw apply [POLICY]         compile one policy and enforce it (`load` is the same)
+#   pfw apply -f FILE          the same, from a local file
+#   pfw clear                  stop enforcing: everything passes
+#   pfw shadow                 dry run: verdicts are counted, nothing is blocked
+#   pfw unshadow               enforce again
 #
-#   pfwctl knob ls [POLICY]               a policy's knobs, and what each holds
-#   pfwctl knob set [POLICY] NAME VALUE   set one, for that policy
-#   pfwctl knob unset [POLICY] NAME       back to the policy's default
+#   pfw knob ls [POLICY]               a policy's knobs, and what each holds
+#   pfw knob set [POLICY] NAME VALUE   set one, for that policy
+#   pfw knob unset [POLICY] NAME       back to the policy's default
 #
 # A knob is a value a policy reads, like a port, and is set per policy.
 # Without POLICY, the knob commands mean the enforcing policy, whose knobs
@@ -31,8 +36,8 @@
 #
 # URL is anything `git clone` takes. REF is a branch, tag or commit: the
 # remote's default branch when left out. POLICY is NAME:PATH, a bare PATH
-# when there is one remote, or its number in `pfwctl ls`, wherever a POLICY
-# goes; with none, `apply` What `attach`, `detach`, `apply`, `clear` and `knob` change is saved,
+# when there is one remote, or its number in `pfw ls`, wherever a POLICY
+# goes; with none, `apply` What `attach`, `detach`, `apply`, `clear`, `shadow` and `knob` change is saved,
 # and a restart comes back to it.
 #
 #   --json      print the service's reply as JSON
@@ -40,16 +45,16 @@
 #   --no-color  never color (as NO_COLOR does)
 #   -h, --help  the help
 #
-#   pfwctl config ls              every setting, its value and where it came from
-#   pfwctl config get KEY         one setting's value
-#   pfwctl config set KEY VALUE   set it
-#   pfwctl config unset KEY       back to the default
+#   pfw config ls              every setting, its value and where it came from
+#   pfw config get KEY         one setting's value
+#   pfw config set KEY VALUE   set it
+#   pfw config unset KEY       back to the default
 #
 # The settings, each also an environment variable that wins over the file:
 #
 #   url      PFW_URL      the service's control route (default ws://127.0.0.1:9477/ctl)
 #   service  PFW_SERVICE  the yeet service `up` and `down` act on (default pfw)
-#   source   PFW_SOURCE   the built service `up` applies (default: dist/ or share/pfw beside pfwctl)
+#   source   PFW_SOURCE   the built service `up` applies (default: dist/ or share/pfw beside pfw)
 #   cache    PFW_CACHE    where the remotes are cloned (default ~/.cache/pfw)
 #   yeet     YEET         the yeet CLI (default: the first on PATH that runs)
 #
@@ -148,46 +153,49 @@ row() {
 }
 
 help() {
-	say "$(strong pfwctl)  $(note 'pull pfw-C policy from git and apply it to a pfw service')"
+	say "$(strong pfw)  $(note 'pull pfw-C policy from git and apply it to a pfw service')"
 	say
 	say "$(label 'the service')"
-	row name 'pfwctl up' 'apply the pfw service from its build, and start it'
-	row name 'pfwctl down' 'stop it: the interfaces are no longer filtered'
-	row name 'pfwctl restart' 'stop it and bring it up again, as it was left'
-	row name 'pfwctl status' 'is the firewall up, and what is it enforcing'
-	row name 'pfwctl metrics' 'everything it has counted: verdicts, rules, timings'
+	row name 'pfw up' 'apply the pfw service from its build, and start it'
+	row name 'pfw down' 'stop it: the interfaces are no longer filtered'
+	row name 'pfw restart' 'stop it and bring it up again, as it was left'
+	row name 'pfw status' 'is the firewall up, and what is it enforcing'
+	row name 'pfw doctor' 'check everything pfw depends on, and say how to fix what fails'
+	row name 'pfw metrics' 'what it has counted and how fast: an app on a terminal, text when piped'
 	say
 	say "$(label 'interfaces')"
-	row name 'pfwctl attach [IFACE[,IFACE]]' 'attach to these as well; alone, list them'
-	row name 'pfwctl detach IFACE[,IFACE]' 'let go of these'
+	row name 'pfw attach [IFACE[,IFACE]]' 'attach to these as well; alone, list them'
+	row name 'pfw detach IFACE[,IFACE]' 'let go of these'
 	say
 	say "$(label 'remotes')"
-	row name 'pfwctl remote add NAME URL [-r REF]' 'name a git repository of policies'
-	row name 'pfwctl remote ls' 'the remotes, and the commit each is at'
-	row name 'pfwctl remote rm NAME' 'forget one, and its clone'
-	row name 'pfwctl pull [NAME]' 'fetch one remote, or all of them'
-	row name 'pfwctl ls [NAME]' 'the policies, compiled, the enforcing one marked'
+	row name 'pfw remote add NAME URL [-r REF]' 'name a git repository of policies'
+	row name 'pfw remote ls' 'the remotes, and the commit each is at'
+	row name 'pfw remote rm NAME' 'forget one, and its clone'
+	row name 'pfw pull [NAME]' 'fetch one remote, or all of them'
+	row name 'pfw ls [NAME]' 'the policies, compiled, the enforcing one marked'
 	say
 	say "$(label 'policy')"
-	row name 'pfwctl apply [POLICY]' 'compile one policy and enforce it (load is the same)'
-	row name 'pfwctl apply -f FILE' 'the same, from a local file'
-	row name 'pfwctl clear' 'stop enforcing: everything passes'
+	row name 'pfw apply [POLICY]' 'compile one policy and enforce it (load is the same)'
+	row name 'pfw apply -f FILE' 'the same, from a local file'
+	row name 'pfw clear' 'stop enforcing: everything passes'
+	row name 'pfw shadow' 'dry run: verdicts are counted, nothing is blocked'
+	row name 'pfw unshadow' 'enforce again'
 	say
 	say "$(label 'knobs')  $(note 'values a policy reads, like a port; POLICY defaults to the one enforcing')"
-	row name 'pfwctl knob ls [POLICY]' "a policy's knobs, and what each holds"
-	row name 'pfwctl knob set [POLICY] NAME VALUE' 'set one, for that policy; live if it is enforcing'
-	row name 'pfwctl knob unset [POLICY] NAME' "back to the policy's default"
+	row name 'pfw knob ls [POLICY]' "a policy's knobs, and what each holds"
+	row name 'pfw knob set [POLICY] NAME VALUE' 'set one, for that policy; live if it is enforcing'
+	row name 'pfw knob unset [POLICY] NAME' "back to the policy's default"
 	say
 	say "$(label 'settings')"
-	row name 'pfwctl config ls' 'every setting, its value and where it came from'
-	row name 'pfwctl config get KEY' "one setting's value"
-	row name 'pfwctl config set KEY VALUE' 'set it'
-	row name 'pfwctl config unset KEY' 'back to the default'
+	row name 'pfw config ls' 'every setting, its value and where it came from'
+	row name 'pfw config get KEY' "one setting's value"
+	row name 'pfw config set KEY VALUE' 'set it'
+	row name 'pfw config unset KEY' 'back to the default'
 	say
 	say "$(label 'arguments')"
 	row value 'URL' 'anything git clone takes'
 	row value 'REF' "a branch, tag or commit (default: the remote's default branch)"
-	row value 'POLICY' 'its number in pfwctl ls, NAME:PATH, or a bare PATH with one remote'
+	row value 'POLICY' 'its number in pfw ls, NAME:PATH, or a bare PATH with one remote'
 	say
 	say "$(label 'options')"
 	row value '--json' "print the service's reply as JSON"
@@ -225,7 +233,11 @@ find_yeet() {
 	IFS=$old_ifs
 	return 1
 }
-[ -n "$YEET" ] || YEET=$(find_yeet) || die "no runnable yeet on PATH"
+# The commands that say what is wrong, or need no service, run without one.
+[ -n "$YEET" ] || YEET=$(find_yeet) || case ${1:-} in
+doctor | help | config | remote | '') YEET='' ;;
+*) die "no runnable yeet on PATH: pfw doctor says what else is missing" ;;
+esac
 
 # One exchange: stdin out, the reply into $reply. The service closes as soon
 # as it has answered, which can beat `yeet dial` to its own end-of-input and
@@ -241,7 +253,7 @@ DEADLINE=''
 # Send stdin as one command in `$1` format; the reply lands in $reply and
 # the status says whether the service called it ok.
 ask() {
-	dial || die "pfw is not reachable, or did not answer, at $PFW_URL"
+	dial || die "the pfw service is not reachable, or did not answer, at $PFW_URL"
 	case $1 in
 	json)
 		case $reply in '{"ok":true'*) return 0 ;; *) return 1 ;; esac
@@ -278,9 +290,22 @@ TAB=$(printf '\t')
 
 remote_dir() { printf '%s/remotes/%s\n' "$PFW_CACHE" "$1"; }
 
+# The public rules, there until someone says otherwise: with no remotes
+# file yet, one is written holding them. Removing the remote leaves the
+# file behind, empty, so it does not come back.
+DEFAULT_REMOTE=rules
+DEFAULT_URL=https://github.com/yeet-src/pfw-rules.git
+
+seed_remotes() {
+	[ ! -e "$REMOTES" ] || return 0
+	mkdir -p "$(dirname "$REMOTES")"
+	printf '%s\t%s\t\n' "$DEFAULT_REMOTE" "$DEFAULT_URL" >"$REMOTES"
+	printf '%s %s %s %s\n' "$(ok '✔')" "$(label 'added the default remote')" "$(name "$DEFAULT_REMOTE")" "$(value "$DEFAULT_URL")" >&2
+}
+
 # NAME's URL and ref into $url and $ref; fails when there is no such remote.
 remote() {
-	[ -f "$REMOTES" ] || return 1
+	seed_remotes
 	while IFS=$TAB read -r known url ref; do
 		[ "$known" != "$1" ] || return 0
 	done <"$REMOTES"
@@ -288,14 +313,14 @@ remote() {
 }
 
 remote_names() {
-	[ -f "$REMOTES" ] || return 0
+	seed_remotes
 	cut -f 1 "$REMOTES"
 }
 
 # The names a command acts on: the one given, which must exist, or all.
 chosen() {
 	if [ -n "${1:-}" ]; then
-		remote "$1" || die "no such remote: $1 (pfwctl remote ls)"
+		remote "$1" || die "no such remote: $1 (pfw remote ls)"
 		printf '%s\n' "$1"
 	else
 		remote_names
@@ -324,7 +349,7 @@ remote_add() {
 
 	mkdir -p "$(dirname "$REMOTES")"
 	printf '%s\t%s\t%s\n' "$new" "$new_url" "$new_ref" >>"$REMOTES"
-	say "$(ok '✔') $(name "$new") $(label '=') $(value "$new_url")  $(note "pfwctl pull $new")"
+	say "$(ok '✔') $(name "$new") $(label '=') $(value "$new_url")  $(note "pfw pull $new")"
 }
 
 remote_rm() {
@@ -341,7 +366,7 @@ remote_rm() {
 remote_ls() {
 	[ $# -eq 0 ] || usage
 	[ -n "$(remote_names)" ] || {
-		say "$(warn 'no remotes: pfwctl remote add NAME URL')"
+		say "$(warn 'no remotes: pfw remote add NAME URL')"
 		return
 	}
 	wide_name=0 wide_url=0
@@ -405,7 +430,7 @@ pull_one() {
 }
 
 pull() {
-	[ -n "$(remote_names)" ] || die "no remotes: pfwctl remote add NAME URL"
+	[ -n "$(remote_names)" ] || die "no remotes: pfw remote add NAME URL"
 	for each in $(chosen "${1:-}"); do pull_one "$each"; done
 }
 
@@ -424,7 +449,7 @@ policies() {
 list() {
 	first=1
 	if [ -n "${1:-}" ]; then
-		remote "$1" || die "no such remote: $1 (pfwctl remote ls)"
+		remote "$1" || die "no such remote: $1 (pfw remote ls)"
 		# Numbered as in the whole list, since that is what `load` counts in.
 		first=$(policies | cut -f 1 | grep -n -x -- "$1" | head -n 1 | cut -d : -f 1)
 		first=${first:-1}
@@ -444,7 +469,7 @@ list() {
 "}
 		say "$reply"
 	else
-		caution "pfw is not reachable at $PFW_URL, so nothing was compiled"
+		caution "the pfw service is not reachable at $PFW_URL, so nothing was compiled"
 		tr "$TAB" ':' <"$listed" | nl -v "$first" -w 3 -s ' '
 	fi
 	rm -f "$request" "$listed"
@@ -458,19 +483,19 @@ resolve() {
 		case $1 in
 		*:*) from=${1%%:*} path=${1#*:} ;;
 		*)
-			[ "$(remote_names | wc -l)" -eq 1 ] || die "which remote? pfwctl apply NAME:$1"
+			[ "$(remote_names | wc -l)" -eq 1 ] || die "which remote? pfw apply NAME:$1"
 			from=$(remote_names) path=$1
 			;;
 		esac
 		;;
 	*)
 		picked=$(policies | sed -n "${1}p")
-		[ -n "$picked" ] || die "no policy numbered $1 (pfwctl ls)"
+		[ -n "$picked" ] || die "no policy numbered $1 (pfw ls)"
 		from=${picked%%"$TAB"*} path=${picked#*"$TAB"}
 		;;
 	esac
-	remote "$from" || die "no such remote: $from (pfwctl remote ls)"
-	[ -f "$(remote_dir "$from")/$path" ] || die "no such policy: $from:$path (pfwctl ls)"
+	remote "$from" || die "no such remote: $from (pfw remote ls)"
+	[ -f "$(remote_dir "$from")/$path" ] || die "no such policy: $from:$path (pfw ls)"
 }
 
 # Compile one policy and enforce it. One that does not compile is refused,
@@ -482,7 +507,7 @@ apply() {
 	else
 		choice=${1:-}
 		if [ -z "$choice" ]; then
-			[ -t 0 ] || die "which policy? pfwctl apply NAME:PATH, or its number in pfwctl ls"
+			[ -t 0 ] || die "which policy? pfw apply NAME:PATH, or its number in pfw ls"
 			list
 			printf '%s ' "$(label 'apply which?')"
 			read -r choice
@@ -525,7 +550,7 @@ knob() {
 		case $# in
 		2) knob_send knob-set '' "$1 $2" ;;
 		3) knob_send knob-set "$1" "$2 $3" ;;
-		*) die "pfwctl knob set [POLICY] NAME VALUE" ;;
+		*) die "pfw knob set [POLICY] NAME VALUE" ;;
 		esac
 		save
 		;;
@@ -533,7 +558,7 @@ knob() {
 		case $# in
 		1) knob_send knob-unset '' "$1" ;;
 		2) knob_send knob-unset "$1" "$2" ;;
-		*) die "pfwctl knob unset [POLICY] NAME" ;;
+		*) die "pfw knob unset [POLICY] NAME" ;;
 		esac
 		save
 		;;
@@ -632,7 +657,7 @@ up() {
 		}
 		[ "$format" = json ] || say "$(ok '✔') $(label 'applied') $(strong "$PFW_SERVICE") $(label 'from') $(value "$source")"
 	else
-		caution "no built service found (pfwctl config set source DIR), so starting $PFW_SERVICE as it is"
+		caution "no built service found (pfw config set source DIR), so starting $PFW_SERVICE as it is"
 	fi
 	started=$("$YEET" service start "$PFW_SERVICE" 2>&1) || {
 		reason=$(daemon_error "$started")
@@ -739,7 +764,7 @@ config() {
 	set)
 		[ $# -le 2 ] || usage
 		known "${1:-}"
-		[ $# -eq 2 ] || die "set $1 to what? pfwctl config set $1 VALUE"
+		[ $# -eq 2 ] || die "set $1 to what? pfw config set $1 VALUE"
 		case $2 in *'
 '*) die "a setting is one line" ;; esac
 		store "$1" "$2"
@@ -756,6 +781,215 @@ config() {
 		die "no such config command: $action (ls, get, set, unset)"
 		;;
 	esac
+}
+
+# ---- doctor -----------------------------------------------------------------
+
+# One finding a line: what was checked and what was found, then, for one
+# that is not right, how to put it right.
+problems=0 warnings=0
+finding() {
+	printf '  %s %s%*s  %s\n' "$1" "$(strong "$2")" "$((12 - ${#2}))" '' "$3"
+	[ -z "${4:-}" ] || printf '      %*s%s\n' 12 '' "$(note "$4")"
+}
+good() { finding "$(ok '✔')" "$1" "$(note "$2")"; }
+warned() {
+	warnings=$((warnings + 1))
+	finding "$(warn '▲')" "$1" "$(warn "$2")" "${3:-}"
+}
+failed() {
+	problems=$((problems + 1))
+	finding "$(bad '✘')" "$1" "$(bad "$2")" "${3:-}"
+}
+section() { printf '%s\n' "$(label "$1")"; }
+
+# The first value of `--flag` in the service file's args, else `$3`.
+service_arg() {
+	found=$(sed -n 's/^args = \[\(.*\)\]$/\1/p' "$1" | tr -d '" ' | tr ',' '\n' | sed -n "/^--$2\$/{n;p;}" | head -n 1)
+	printf '%s\n' "${found:-$3}"
+}
+
+# Whether `$1` is at least kernel `$2.$3`.
+kernel_at_least() {
+	major=${1%%.*} rest=${1#*.}
+	minor=${rest%%[!0-9]*}
+	[ "$major" -gt "$2" ] || { [ "$major" -eq "$2" ] && [ "${minor:-0}" -ge "$3" ]; }
+}
+
+# One plain question of the service, its reply in $reply. A here-document,
+# not a pipe: a pipe would run `dial` in a subshell and lose the reply.
+query() {
+	dial <<-ASK
+		@plain $1
+	ASK
+}
+
+is_local() {
+	case $PFW_URL in *://127.0.0.1[:/]* | *://localhost[:/]* | *://\[::1\]*) return 0 ;; esac
+	return 1
+}
+
+doctor() {
+	section 'this host'
+	kernel=$(uname -r)
+	if [ "$(uname -s)" != Linux ]; then
+		failed 'linux' "this is $(uname -s)" 'the firewall is an XDP program: run pfw on Linux (on macOS, inside the Lima VM)'
+	elif kernel_at_least "$kernel" 6 1; then
+		good 'linux' "kernel $kernel"
+	else
+		warned 'linux' "kernel $kernel" 'pfw-core is tested on 6.1 and later: an older kernel may refuse the program'
+	fi
+	if [ -r /sys/kernel/btf/vmlinux ]; then good 'kernel BTF' '/sys/kernel/btf/vmlinux'; else
+		failed 'kernel BTF' 'missing' 'the kernel needs CONFIG_DEBUG_INFO_BTF for the firewall to load'
+	fi
+	if command -v git >/dev/null 2>&1; then good 'git' "$(git --version | cut -d ' ' -f 3)"; else
+		failed 'git' 'not on PATH' 'pfw pull clones policy repositories with git: install it'
+	fi
+
+	section 'yeet'
+	if [ -z "$YEET" ]; then
+		failed 'yeet' 'no runnable yeet on PATH' 'install yeet, or name it: pfw config set yeet /path/to/yeet'
+		say
+		summary
+		return
+	fi
+	good 'yeet' "$YEET $("$YEET" version 2>/dev/null | sed -n 's/^Version: //p')"
+	skipped=$(command -v yeet 2>/dev/null || true)
+	[ -z "$skipped" ] || [ "$skipped" = "$YEET" ] || "$skipped" --version >/dev/null 2>&1 ||
+		warned 'PATH' "$skipped comes first and does not run here" "pfw skips it, but a bare yeet will not: put $(dirname "$YEET") ahead of it"
+	if "$YEET" status >/dev/null 2>&1; then good 'daemon' 'yeetd answers'; else
+		failed 'daemon' 'yeetd does not answer' 'start the yeet daemon, and check that you may use its socket'
+		say
+		summary
+		return
+	fi
+
+	section 'the service'
+	if ! is_local; then
+		warned 'remote' "$PFW_URL is another host" 'what follows about the build, the port and saved state is checked on the host that runs it'
+		if query status; then good 'control' "answers at $PFW_URL"; else
+			failed 'control' "nothing answers at $PFW_URL" 'is the service up there, and is the port reachable from here?'
+		fi
+		say
+		summary
+		return
+	fi
+
+	if source=$(service_source); then
+		missing=''
+		for part in index.js firewall.js scrape.js ui.js bin/vm.bpf.o service.toml; do
+			[ -f "$source/$part" ] || missing="$missing $part"
+		done
+		if [ -z "$missing" ]; then good 'build' "$source"; else
+			failed 'build' "$source lacks$missing" 'rebuild it: make, then make install'
+		fi
+	else
+		failed 'build' 'no built service found' 'make install puts one beside pfw; or pfw config set source DIR'
+	fi
+
+	state=$("$YEET" service get "$PFW_SERVICE" 2>/dev/null | sed -n 's/^Service .*) *//p')
+	case $state in
+	running) good 'service' "$PFW_SERVICE is running" ;;
+	'') failed 'service' "there is no $PFW_SERVICE service" 'pfw up creates it and starts it' ;;
+	*) failed 'service' "$PFW_SERVICE is $state" 'pfw up starts it' ;;
+	esac
+
+	answers=''
+	if [ "$state" = running ]; then
+		if query status; then
+			answers=1
+			seen=$reply
+			good 'control' "answers at $PFW_URL"
+		else
+			failed 'control' "nothing answers at $PFW_URL" 'pfw restart; if it persists, pfw config get url should match the service file'
+		fi
+		if [ -n "${source:-}" ]; then
+			case $("$YEET" service apply -f "$source" -a "$PFW_SERVICE" --plan 2>/dev/null) in
+			*restarted* | *updated*) warned 'version' 'the running service is behind its build' 'pfw up moves it onto the build (the firewall restarts)' ;;
+			*) good 'version' 'the running service is its build' ;;
+			esac
+		fi
+	fi
+
+	if [ -n "${source:-}" ] && [ -f "$source/service.toml" ]; then
+		listen=$(sed -n 's/^web-server = "\(.*\)"$/\1/p' "$source/service.toml" | head -n 1)
+		port=${listen##*:}
+		port=${port%%/*}
+		held=$(ss -ltnH 2>/dev/null | awk -v p=":$port" '$4 ~ p"$"' | head -n 1)
+		if [ "$state" = running ]; then
+			if [ -n "$held" ]; then good 'port' "listening on $listen"; else failed 'port' "nothing listens on $listen" 'pfw restart'; fi
+			case $PFW_URL in *":$port/"*) ;; *) warned 'url' "pfw talks to $PFW_URL, the service listens on $listen" "pfw config set url ws://127.0.0.1:$port/ctl" ;; esac
+			case $listen in *0.0.0.0*) warned 'exposure' "$listen is every interface, and /ctl has no login" 'anyone who reaches the port can change the policy: bind 127.0.0.1 in service.toml, or firewall the port' ;; esac
+		elif [ -n "$held" ]; then
+			failed 'port' "$port is already taken" "something else listens there: stop it, or change web-server in $source/service.toml"
+		else
+			good 'port' "$port is free"
+		fi
+	fi
+
+	section 'the firewall'
+	if [ -n "$answers" ]; then
+		reply=${seen#*"
+"}
+		case $reply in
+		*'no interface'*) warned 'interfaces' 'attached to none: nothing is filtered' 'pfw attach lists them; pfw attach IFACE takes one' ;;
+		*) good 'interfaces' "$(printf '%s\n' "$reply" | sed -n '1s/.*   on //p' | sed 's/   shadow.*//')" ;;
+		esac
+		case $reply in
+		*'none: passing everything'*) warned 'policy' 'none is enforcing: everything passes' 'pfw ls, then pfw apply POLICY' ;;
+		*) good 'policy' "$(printf '%s\n' "$reply" | sed -n '2s/^ *policy *//p' | sed 's/   .*//')" ;;
+		esac
+		case $reply in *'shadow mode'*) warned 'shadow' 'on: verdicts are counted, nothing is blocked' 'pfw unshadow enforces' ;; esac
+
+		if query saved; then
+			reply=${reply#*"
+"}
+			target=${reply%%"
+"*}
+			parent=$(dirname "$target")
+			while [ ! -e "$parent" ]; do parent=$(dirname "$parent"); done
+			if [ -w "$parent" ]; then good 'saved state' "$target"
+			elif command -v sudo >/dev/null 2>&1; then good 'saved state' "$target, written with sudo"
+			else failed 'saved state' "$target cannot be written, and there is no sudo" 'what pfw changes would be lost on restart: make its directory yours, or set --state-file in service.toml'; fi
+		fi
+	elif [ -n "${source:-}" ] && [ -f "$source/service.toml" ]; then
+		for iface in $(service_arg "$source/service.toml" iface lo | tr ',' ' '); do
+			if [ ! -e "/sys/class/net/$iface" ]; then
+				failed 'interface' "$iface does not exist" "the service starts on it: change --iface in $source/service.toml (ip -br link lists them)"
+			elif ip link show "$iface" 2>/dev/null | grep -q 'xdp'; then
+				failed 'interface' "another XDP program is on $iface" 'an interface has one XDP hook: detach the other program, or start on another interface'
+			else
+				good 'interface' "$iface is there, and its XDP hook is free"
+			fi
+		done
+	fi
+
+	section 'policy'
+	if [ -z "$(remote_names 2>/dev/null)" ]; then
+		warned 'remotes' 'none' 'pfw remote add NAME URL'
+	else
+		for each in $(remote_names); do
+			remote "$each"
+			at=$(rev "$each")
+			if [ -z "$at" ]; then warned "remote $each" 'not pulled yet' "pfw pull $each"
+			elif ${DEADLINE:+timeout 10} git ls-remote --exit-code "$url" HEAD >/dev/null 2>&1; then good "remote $each" "at $at, and $url answers"
+			else warned "remote $each" "at $at, but $url does not answer" 'pulls will fail until it does: check the network, and your access to it'; fi
+		done
+	fi
+
+	say
+	summary
+}
+
+summary() {
+	if [ "$problems" -gt 0 ]; then
+		say "$(bad '✘') $(strong "$problems to fix")$([ "$warnings" -eq 0 ] || printf ', %s' "$(warn "$warnings to look at")")"
+		return 1
+	elif [ "$warnings" -gt 0 ]; then
+		say "$(warn '▲') $(strong 'pfw can run')$(printf ', with %s' "$(warn "$warnings to look at")")"
+	else
+		say "$(ok '✔') $(strong 'everything pfw depends on is in place')"
+	fi
 }
 
 # ---- main -------------------------------------------------------------------
@@ -783,6 +1017,12 @@ if [ "$verb" = remote ]; then
 	*) die "no such remote command: $action (add, ls, rm)" ;;
 	esac
 	exit 0
+fi
+
+if [ "$verb" = doctor ]; then
+	[ $# -eq 0 ] || usage
+	doctor
+	exit $?
 fi
 
 if [ "$verb" = knob ]; then
@@ -824,6 +1064,11 @@ status)
 	;;
 metrics)
 	[ $# -eq 0 ] || usage
+	# On a terminal, the metrics app: the service's /ui route beside /ctl.
+	# Piped, or asked for plain text or JSON, the page as text.
+	if [ "$format" = tty ] && [ -t 0 ] && [ -t 1 ]; then
+		exec "$YEET" dial "${PFW_URL%/*}/ui"
+	fi
 	printf '@%s metrics\n' "$format" | send
 	;;
 attach)
@@ -849,6 +1094,10 @@ load | apply)
 clear)
 	[ $# -eq 0 ] || usage
 	change clear
+	;;
+shadow | unshadow)
+	[ $# -eq 0 ] || usage
+	change "$verb"
 	;;
 *)
 	usage

@@ -1,33 +1,60 @@
 # pfw
 
-A yeet service that enforces programmable L7 firewall policy at XDP, and
-`pfwctl`, the CLI that pulls policy from git and loads it.
+An L7 firewall at XDP, as a yeet service, and `pfw`, the command that drives
+it: pulls policy from git, applies it, and shows what it is doing.
 
 - **The service** embeds [`pfw-core`](https://github.com/yeet-src/pfw-core).
   The firewall is a shared worker: it owns the XDP hook of its interfaces
   through `PfwVm`, with the policy and the counters. An eager *keeper* isolate
-  holds the worker alive, and a web server puts two routes on the network.
-- **`/metrics`** is the firewall's counters as Prometheus text: packets by
-  verdict, hits by rule, decision-time histogram, the policy now enforcing.
+  holds the worker alive, and a web server puts three routes on the network.
+- **`/metrics`** is everything the firewall counts, as Prometheus text:
+  packets by verdict, hits and time by rule, the decision-time histogram,
+  what reassembly and the HTTP/2 decoder could not fully inspect, events
+  lost, the enforcing policy with its revision and CVEs, and its knobs.
   Each scrape is its own short-lived isolate (per-connection tenancy) that
   asks the worker for a snapshot.
 - **`/ctl`** is the control route, served by the keeper and run in the
-  worker. `bin/pfwctl` is its client, over `yeet dial`.
+  worker. `bin/pfw` is its client, over `yeet dial`.
+- **`/ui`** is the metrics app: a terminal application, one isolate per
+  viewer, that draws what the worker counts. `pfw metrics` dials it.
 
 Policy is [pfw-C](https://github.com/yeet-src/pfw-core/blob/master/docs/lang.md),
 one program at a time. With none applied, the firewall passes everything.
 
-## pfwctl
+## Install
 
 ```sh
-pfwctl up                                    # apply the service from its build, and start it
-pfwctl status                                # is it up, what is it enforcing
+./install.sh
+```
 
-pfwctl remote add acme git@github.com:acme/policy.git
-pfwctl pull                                  # fetch every remote
-pfwctl ls                                    # the policies, numbered, compiled
+From a checkout, that is the whole of it. It checks this is Linux, finds
+`yeet` (and installs it with `curl -fsSL https://yeet.cx | sh` when it is
+missing), checks the host is logged in (and runs `yeet login` when it
+is not), checks the daemon answers, builds pfw, installs the command and the
+service's files under `/usr/local`, runs `pfw doctor`, and brings the
+firewall up. Each step that fails says what to do; it can be run again.
 
-pfwctl apply acme:edge/waf.pfc               # or its number, or nothing to be asked
+| | |
+|---|---|
+| `--prefix DIR` | install under `DIR` instead of `/usr/local` |
+| `--package SRC` | install this package (a file or a URL) instead of building |
+| `--no-login` | do not require a yeet login |
+| `--no-up` | install only; `pfw up` starts the firewall later |
+
+Without a checkout, `install.sh` installs a package: the tarball `make pkg`
+makes, which holds `bin/pfw` and `share/pfw` and needs no build. It looks for
+the latest release's, or takes one from `--package`.
+
+## The pfw command
+
+```sh
+pfw up                                    # apply the service from its build, and start it
+pfw status                                # is it up, what is it enforcing
+
+pfw pull                                  # fetch every remote: `rules` is there to begin with
+pfw ls                                    # the policies, numbered, compiled
+
+pfw apply rules:http/crawlers.pfc         # or its number, or nothing to be asked
 ```
 
 ```
@@ -41,23 +68,49 @@ pfwctl apply acme:edge/waf.pfc               # or its number, or nothing to be a
 |---|---|
 | `up`, `down`, `restart` | the service's life |
 | `status` | up or down, interfaces, policy, counters |
-| `metrics` | everything it has counted: verdicts, rules, decision times |
+| `doctor` | checks everything `pfw` depends on, and says how to fix what fails |
+| `metrics` | everything it has counted and how fast: an app to explore it on a terminal, text when piped |
 | `attach [IFACE,...]`, `detach IFACE,...` | the interfaces it filters |
 | `remote add NAME URL [-r REF]`, `remote ls`, `remote rm NAME` | the git repositories policies come from |
 | `pull [NAME]` | fetch one remote, or all |
 | `ls [NAME]` | the pulled policies |
 | `apply [POLICY]`, `clear` | the policy enforcing (`load` is another name for `apply`) |
+| `shadow`, `unshadow` | dry run on and off |
 | `knob ls`, `knob set`, `knob unset` | the values a policy reads, per policy |
-| `config ls`, `get`, `set`, `unset` | `pfwctl`'s own settings |
+| `config ls`, `get`, `set`, `unset` | `pfw`'s own settings |
 
 - **`up`** makes the service match its build, creating it if it is missing,
   then starts it. The build is the `source` setting, else `dist/` or
-  `share/pfw` beside `pfwctl`, which covers the tree and `make install` alike.
+  `share/pfw` beside `pfw`, which covers the tree and `make install` alike.
   A changed build stops the firewall before the new one starts, since an
   interface has one XDP hook: the interfaces go unfiltered for that moment,
   and `up` says so. **`restart`** is `down` then `up`.
 - **`status`** exits non-zero when the firewall is down or unreachable, so it
   is also the health check.
+- **`doctor`** is where to start when something is off, and on a new host. It
+  checks the kernel, `yeet` and its daemon, the build, the service and
+  whether it is behind its build, the port, the interfaces and their XDP
+  hooks, where state is saved, and that each remote answers. Each finding
+  that is not right comes with what to do about it; it exits non-zero when
+  something has to be fixed. It runs without `yeet`, to say so.
+- **`metrics`** on a terminal opens the metrics app: a terminal application
+  the service runs for you, dialed on its `/ui` route and redrawn each
+  second. Four pages, each a full dashboard about one thing, in boxes with
+  their titles in the borders:
+
+  | page | what it is about |
+  |---|---|
+  | overview | traffic: the graph and verdicts, with speeds, decision time, the busiest rules and the counters under them |
+  | rules | what is being stopped: a graph of blocks, the rules by hits, and what the picked one cost |
+  | timing | what deciding costs: the whole histogram, the percentiles, what is slowest, and payload scanned |
+  | engine | the VM itself: new flows and payload scanned, over every counter it keeps |
+
+  `1`-`4`, Tab, `←` `→` or a click on a tab change page; `↑` `↓`, the wheel,
+  PgUp and PgDn move through whatever is longer than the screen; a click
+  picks a rule, and one on a busiest rule opens the rules page on it; `q`
+  leaves. Piped, or with `--no-color` or `--json`, `metrics` prints the same
+  numbers as a page of text. The firewall samples its counters once a second
+  to know the speeds.
 - **`attach`** adds interfaces and **`detach`** lets them go; `attach` alone
   lists the host's. Changing the set releases the hooks before taking the new
   ones, so flows, bans and counters start over, and the policy is enforced
@@ -65,6 +118,10 @@ pfwctl apply acme:edge/waf.pfc               # or its number, or nothing to be a
   or another XDP program holds it), the firewall goes back to where it was.
   Detached from everything, it stays up and holds its policy, filtering
   nothing.
+- **Remotes** are the git repositories policies come from. One is there to
+  begin with: `rules`, the public
+  [pfw-rules](https://github.com/yeet-src/pfw-rules). `remote add` names
+  another beside it, and `remote rm rules` drops it for good.
 - **`pull`** says what changed in each remote since the last pull.
 - **`ls`** lists every `.pfc`, numbered, with whether it compiles and which
   one is enforcing. The service does the compiling.
@@ -74,6 +131,12 @@ pfwctl apply acme:edge/waf.pfc               # or its number, or nothing to be a
   atomically: flows and bans survive. One that does not compile is refused
   with its errors, and the running policy stays. **`clear`** stops enforcing,
   and everything passes.
+
+- **`shadow`** turns enforcement into a dry run: the policy decides and
+  counts as usual, and every packet passes. `status` says so and shows what
+  would have been blocked, which is the number to watch before
+  **`unshadow`** makes it real. It is the firewall's mode, not a policy's, so
+  it holds across `apply` and restarts.
 
 ### Knobs
 
@@ -88,11 +151,11 @@ filter {
 ```
 
 ```sh
-pfwctl knob ls                                   # the enforcing policy's knobs
-pfwctl knob set port 8080                        # on the next packet, no reload
-pfwctl knob set 2 port 8080                      # a policy by its number in `pfwctl ls`,
-pfwctl knob set rules:http/crawlers.pfc port 8080   # or by name, before applying it
-pfwctl knob unset port                           # back to the policy's default
+pfw knob ls                                   # the enforcing policy's knobs
+pfw knob set port 8080                        # on the next packet, no reload
+pfw knob set 2 port 8080                      # a policy by its number in `pfw ls`,
+pfw knob set rules:http/crawlers.pfc port 8080   # or by name, before applying it
+pfw knob unset port                           # back to the policy's default
 ```
 
 ```
@@ -109,17 +172,17 @@ knobs of rules:http/crawlers.pfc @ a1b2c3d   enforcing
 - **`knob("name")` is a 64-bit number**, typed in decimal or `0x` hex.
   **`kstr("name")`** is text of up to 64 bytes that the policy looks for in
   the payload.
-- `pfwctl ls` lists each policy's knobs under it, a line apiece with what it
-  holds and what it is for, and `pfwctl status` shows the ones that are set.
-- **A policy's number in `pfwctl ls` names it** anywhere a POLICY goes:
-  `pfwctl apply 2`, `pfwctl knob ls 2`, `pfwctl knob set 2 port 8080`.
+- `pfw ls` lists each policy's knobs under it, a line apiece with what it
+  holds and what it is for, and `pfw status` shows the ones that are set.
+- **A policy's number in `pfw ls` names it** anywhere a POLICY goes:
+  `pfw apply 2`, `pfw knob ls 2`, `pfw knob set 2 port 8080`.
 
 A knob is one value: a list of ports is not a knob.
 
 ### What a policy says about itself
 
 A policy may open with `@key value` lines in its leading comment block, and
-`pfwctl ls` prints them under its row:
+`pfw ls` prints them under its row:
 
 ```c
 // @description Resets connections that carry a JNDI lookup string.
@@ -147,23 +210,23 @@ Output is colored on a terminal and plain when piped or under `NO_COLOR`;
 
 An isolate has no storage, so the firewall's state (the interfaces it is
 attached to, the policy it enforces and the knobs set per policy) is kept as a JavaScript module on the
-host. After `attach`, `detach`, `apply`, `clear` and a `knob` change, `pfwctl` asks the service for that module
+host. After `attach`, `detach`, `apply`, `clear`, `shadow` and a `knob` change, `pfw` asks the service for that module
 and writes it to the service's `--state-file`; the next start imports it and
 comes up as it was left. Writing under `/var/lib` goes through `sudo`.
 
 Only a service on this host can be saved for. Changed on another host
-(`PFW_URL`), the state holds until that service restarts, and `pfwctl` says so.
+(`PFW_URL`), the state holds until that service restarts, and `pfw` says so.
 
 ## Build & run
 
 On macOS, run these inside the Lima VM (see the repo's `AGENTS.md`).
 
 ```sh
-make             # dist/: index.js, firewall.js, scrape.js + bin/vm.bpf.o + service.toml
+make             # dist/: index.js, firewall.js, scrape.js, ui.js + bin/vm.bpf.o + service.toml
 make test        # unit tests, under `yeet test`
-make apply       # pfwctl up on dist/: create or update the service, and start it
+make apply       # pfw up on dist/: create or update the service, and start it
 make remove      # stop and remove the service
-make install     # pfwctl into $(PREFIX)/bin, the service into $(PREFIX)/share/pfw
+make install     # pfw into $(PREFIX)/bin, the service into $(PREFIX)/share/pfw
 make uninstall
 ```
 
@@ -190,30 +253,30 @@ curl http://127.0.0.1:9477/metrics
 ## Configuration
 
 `service.toml` is the service: the listen address, the routes, and where the
-firewall starts out. The interfaces are then `pfwctl attach`'s to change.
+firewall starts out. The interfaces are then `pfw attach`'s to change.
 
 | what | where | default |
 |---|---|---|
-| first interfaces | `units.keeper.args`: `--iface <name\|ifindex>[,...]`, until `pfwctl attach` | `lo` |
+| first interfaces | `units.keeper.args`: `--iface <name\|ifindex>[,...]`, until `pfw attach` | `lo` |
 | listen address | `units.gateway.web-server` | `http://0.0.0.0:9477` |
 | saved state | `units.keeper.args`: `--state-file <path>` | `/var/lib/pfw/state.js` |
 | VM object | `units.keeper.args`: `--object <path>` | `bin/vm.bpf.o` beside the bundle |
 
-`pfwctl` has its own settings, kept in `~/.config/pfw/config` (the remotes are
+`pfw` has its own settings, kept in `~/.config/pfw/config` (the remotes are
 beside it, in `remotes`):
 
 ```sh
-pfwctl config ls                    # every setting, its value and where it came from
-pfwctl config set url ws://10.0.0.5:9477/ctl
-pfwctl config get url
-pfwctl config unset url             # back to the default
+pfw config ls                    # every setting, its value and where it came from
+pfw config set url ws://10.0.0.5:9477/ctl
+pfw config get url
+pfw config unset url             # back to the default
 ```
 
 | key | environment | what | default |
 |---|---|---|---|
 | `url` | `PFW_URL` | the service's control route | `ws://127.0.0.1:9477/ctl` |
 | `service` | `PFW_SERVICE` | the yeet service `up` and `down` act on | `pfw` |
-| `source` | `PFW_SOURCE` | the built service `up` applies | `dist/` or `share/pfw` beside `pfwctl` |
+| `source` | `PFW_SOURCE` | the built service `up` applies | `dist/` or `share/pfw` beside `pfw` |
 | `cache` | `PFW_CACHE` | where the remotes are cloned | `~/.cache/pfw` |
 | `yeet` | `YEET` | the yeet CLI | the first on `PATH` that runs |
 
@@ -239,6 +302,8 @@ attach <name>[,<name>...]
 detach <name>[,<name>...]
 apply <bytes> <name>\n<bytes of pfw-C>
 clear
+shadow
+unshadow
 check <count> [<first>]\n   then <count> of   <bytes> <name>\n<bytes of pfw-C>
 knobs <0|1>
 knob-set <0|1> <knob> <value>
@@ -259,14 +324,20 @@ whatever chunks it read.
 ## Layout
 
 ```
-service.toml              the service: keeper, scrape and gateway units, and the routes
-bin/pfwctl                the CLI: service, interfaces, remotes, policy, settings,
+service.toml              the service: keeper, scrape, ui and gateway units, and the routes
+bin/pfw                the CLI: service, interfaces, remotes, policy, settings,
                           over `yeet dial`
 
 src/main.js               the keeper: opens the worker and holds it, serves `ctl`
 src/firewall.js           the shared worker: owns the firewall, answers the keeper
                           and the scrapes
 src/scrape.js             one scrape: a per-connection isolate on the console portal
+src/ui/main.jsx           the metrics app: a per-connection isolate on the tty portal
+src/ui/pages.jsx          its four pages: where each box goes, and what a click means
+src/ui/views.js           what the boxes say, as rows of colored runs (pure)
+src/ui/panel.jsx          a box with its title in the border, and the scrolling list
+src/ui/line.jsx           a row drawn, and rows aligned into columns
+src/ui/feed.js            its line to the worker, asked once a second
 src/config.js             yeet.args -> first interfaces, object path, state file
 src/worker/protocol.js    what crosses the worker's port
 src/worker/link.js        the keeper's end of that port
@@ -276,6 +347,7 @@ src/fw/firewall.js        the PfwVm and the policy it enforces
 src/fw/policy.js          pfw-C source compiled, or refused with its errors
 src/fw/meta.js            a policy's `@key` metadata, from its opening comments
 src/fw/knobs.js           knob values, kept per policy
+src/fw/rates.js           the counters sampled each second: speeds and percentiles
 src/fw/name.js            a policy's name, and the key that outlives its revision
 src/fw/saved.js           interfaces + policy as a module, restored at start
 src/fw/interfaces.js      the host's interfaces, names -> ifindexes, from the system graph
@@ -285,10 +357,11 @@ src/ctl/portal.js         the `ctl` portal, in the keeper: one command per peer
 src/ctl/request.js        a request's framing: header, then counted sources
 src/ctl/stream.js         a portal peer read as a byte stream
 src/ctl/reply.js          a request run against the firewall, in the worker
-src/ctl/commands.js       status, interfaces, attach, detach, apply, clear, check,
-                          knobs, saved
+src/ctl/commands.js       status, interfaces, attach, detach, apply, clear, shadow,
+                          check, knobs, saved
 src/ctl/render/           replies as text: palette, status block, metrics page,
-                          policy and interface lists
+                          policy and interface lists, bars and sparklines
 test/                     `yeet test` cases
+install.sh                yeet, a login, the command and the service, in one run
 build/                    toolchain glue, from the yeet project template
 ```

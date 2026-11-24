@@ -5,15 +5,18 @@
  *
  *   the keeper (src/main.js)   brings it up, and sends control requests
  *   a scrape (src/scrape.js)   asks for a telemetry snapshot
+ *   a viewer (src/ui/main.jsx) asks for what the terminal app draws
  */
 import { answer } from "#/ctl/reply.js";
 import { Firewall } from "#/fw/firewall.js";
 import { resolveInterfaces } from "#/fw/interfaces.js";
 import { SavedState } from "#/fw/saved.js";
 import { document } from "#/metrics/document.js";
-import { CTL, FAILED, INIT, READY, REPLY, message } from "#/worker/protocol.js";
+import { CTL, FAILED, INIT, READY, REPLY, VIEW, message } from "#/worker/protocol.js";
 
-/* Comes up as `pfwctl` last left it: on the interfaces it was attached to,
+const SAMPLE_MS = 1000;
+
+/* Comes up as the `pfw` command last left it: on the interfaces it was attached to,
  * enforcing the policy it had. With nothing saved it attaches to the
  * service's `--iface` and passes everything.
  */
@@ -27,11 +30,14 @@ async function bringUp({ ifaces, object, base, stateFile }) {
     return resolveInterfaces(ifaces);
   });
 
-  const firewall = new Firewall({ interfaces, object, base, knobs: saved?.knobs });
+  const firewall = new Firewall({ interfaces, object, base, knobs: saved?.knobs, shadow: saved?.shadow });
   await firewall.start();
   console.log(`pfw: attached to ${interfaces.map((i) => i.name).join(", ")}`);
 
   await state.restorePolicy(firewall, saved);
+
+  // The VM counts and nothing more; speed is the counters sampled over time.
+  setInterval(() => firewall.sample().catch(() => {}), SAMPLE_MS);
   return { firewall, state };
 }
 
@@ -60,6 +66,20 @@ const handlers = {
     const { firewall, state } = await up;
     port.postMessage(message(REPLY, { id, text: await answer(firewall, state, request) }));
   },
+};
+
+// Everything the terminal app draws, in one message: it asks once a second.
+handlers[VIEW] = async (port) => {
+  const { firewall } = await asked.promise.then(() => up);
+  const stats = await firewall.stats();
+  const { rates } = firewall;
+  port.postMessage(message(VIEW, {
+    report: await firewall.report(stats),
+    stats,
+    speeds: rates.speeds(),
+    ruleSpeeds: rates.ruleSpeeds(),
+    window: rates.seconds,
+  }));
 };
 
 // `yeet:telemetry`'s snapshot protocol, so a scrape is `render({ worker })`.

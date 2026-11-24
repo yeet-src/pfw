@@ -1,4 +1,4 @@
-/* `Firewall.report()` as the block `pfwctl status` prints. */
+/* `Firewall.report()` as the block `pfw status` prints. */
 import { count, duration, plural, splitName } from "#/ctl/render/format.js";
 import { shown } from "#/ctl/render/knobs.js";
 
@@ -32,14 +32,16 @@ function knobsRow(p, policy) {
   return row(p, "knobs", set.map((k) => `${p.name(k.name)} ${p.strong(shown(k))}`).join("   "));
 }
 
-function packetsRow(p, { counters }) {
+function packetsRow(p, { counters, shadow, shadowed }) {
   return row(p, "packets", [
     `${p.strong(count(counters.seen))} ${p.label("seen")}`,
     `${p.label("pass")} ${p.ok(count(counters.passed))}`,
     tally(p, "drop", counters.dropped),
     tally(p, "rst", counters.rsts),
     tally(p, "ban", counters.bans),
-  ].join("   "));
+    // In a dry run, the count that matters: what would have been blocked.
+    shadow && `${p.label("would block")} ${p.warn(count(shadowed))}`,
+  ].filter(Boolean).join("   "));
 }
 
 function rulesRow(p, rules) {
@@ -61,8 +63,10 @@ export function status(report, p, now = Date.now()) {
     ? report.interfaces.map((i) => p.name(i.name)).join(p.note(", "))
     : p.warn("no interface: nothing is filtered");
 
+  const dryRun = report.shadow ? `   ${p.warn("shadow mode: nothing is blocked")}` : "";
+
   return [
-    `${state}   ${p.label("on")} ${interfaces}`,
+    `${state}   ${p.label("on")} ${interfaces}${dryRun}`,
     policyRow(p, report, now),
     knobsRow(p, report.policy),
     packetsRow(p, report),

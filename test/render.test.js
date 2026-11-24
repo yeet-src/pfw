@@ -126,9 +126,10 @@ test("metrics lay the verdicts, rules and decision times out in columns", async 
   assertEquals(text[0], "packets  1k seen");
   assertEquals(text[1], `  pass  900  90.0%  ${"█".repeat(21)}▋`);
   assertEquals(text[2], "  drop  100  10.0%  ██▍");
-  assert(text.includes("  (no rule)  900  100ns  ████████████████████████"));
-  assert(text.includes("  sqli       100  3.1µs  ██▋"));
-  assert(text.includes("decision time  mean 400ns over 1k"));
+  assert(text.includes("  sqli  100  3.1µs  ████████████████████████"));
+  assert(text.includes("  packets that matched no rule took 100ns each to pass"));
+  assert(!text.some((line) => line.includes("(no rule)")));
+  assert(text.includes("decision time  mean 400ns over 1k   p50 < 100ns  p90 < 100ns  p99 ≥ 1µs"));
   assert(text.includes("  < 100ns  900  90.0%  ████████████████████████"));
   assert(text.includes("  ≥ 1µs    100  10.0%  ██▋"));
   assert(text.includes("  scanned bytes  4KiB"));
@@ -170,4 +171,12 @@ test("the catalog puts what a policy says about itself under its row", () => {
 test("tags are all one blue", () => {
   assertEquals(palette(true).tag("#http"), "\x1b[1;38;5;39m#http\x1b[0m");
   assertEquals(palette(false).tag("#http"), "#http");
+});
+
+test("shadow mode is said on the first line, with what would have been blocked", () => {
+  const text = status({ ...REPORT, shadow: true, shadowed: 329n }, plain, NOW);
+
+  assert(text.includes("on eth0   shadow mode: nothing is blocked"));
+  assert(text.includes("shadow (dry run)"));
+  assert(text.includes("ban 0   would block 329"));
 });

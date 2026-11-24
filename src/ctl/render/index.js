@@ -8,7 +8,7 @@ import { metrics } from "#/ctl/render/metrics.js";
 import { palette } from "#/ctl/render/palette.js";
 import { status } from "#/ctl/render/status.js";
 
-// The path on a line of its own, then the module, for `pfwctl` to write there.
+// The path on a line of its own, then the module, for `pfw` to write there.
 const saved = ({ path, module }) => `${path}\n${module}`;
 
 const VIEWS = { status, catalog, interfaces, knobs, metrics, saved };

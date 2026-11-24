@@ -1,14 +1,16 @@
-# The pfw service, three units.
+# The pfw service, four units.
 #
 #   keeper  (eager) holds the firewall shared worker, and the XDP hook,
 #           policy and counters inside it, alive; it also serves `ctl`.
 #   scrape  (lazy, per-connection) renders one exposition document per
 #           request, streamed as the response body via the console portal.
-#   gateway binds the address and mounts the two routes.
+#   ui      (lazy, per-connection) is the metrics app: each viewer who dials
+#           /ui gets a terminal application of their own.
+#   gateway binds the address and mounts the three routes.
 #
-#   pfwctl up                           # apply this service, and start it
+#   pfw up                           # apply this service, and start it
 #   curl http://127.0.0.1:9477/metrics  # the Prometheus scrape
-#   pfwctl status                       # the control portal, over `yeet dial`
+#   pfw status                       # the control portal, over `yeet dial`
 #
 # This file is copied into dist/ by `make`, so paths are relative to dist/.
 
@@ -24,6 +26,10 @@ args = ["--iface", "lo"]
 isolate = "./scrape.js"
 lazy = true
 
+[units.ui]
+isolate = "./ui.js"
+lazy = true
+
 [units.gateway]
 web-server = "http://0.0.0.0:9477"
 
@@ -36,4 +42,9 @@ description = "Prometheus text exposition of the firewall's counters"
 [units.gateway.routes."/ctl"]
 target = "keeper"
 portal = "ctl"
-description = "Control: status, interfaces, policy (see bin/pfwctl)"
+description = "Control: status, interfaces, policy (see bin/pfw)"
+
+[units.gateway.routes."/ui"]
+target = "ui"
+tenancy = "per-connection"
+description = "The metrics app, for a terminal: yeet dial, or pfw metrics"

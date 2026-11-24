@@ -4,6 +4,7 @@
 import { PfwVm } from "pfw-core/loader";
 
 import { Knobs } from "#/fw/knobs.js";
+import { Rates } from "#/fw/rates.js";
 
 // The counters of `PfwVm.stats()` a report carries.
 const COUNTERS = ["seen", "passed", "dropped", "rsts", "bans", "faults"];
@@ -18,9 +19,12 @@ export class Firewall {
   #object;
   #base;
   #knobs;
+  #shadow;
+  #rates = new Rates();
 
-  constructor({ interfaces, object, base, knobs }) {
+  constructor({ interfaces, object, base, knobs, shadow = false }) {
     this.#knobs = new Knobs(knobs);
+    this.#shadow = Boolean(shadow);
     this.#object = object;
     this.#base = base;
     this.#interfaces = interfaces;
@@ -43,8 +47,27 @@ export class Firewall {
 
   // Attached with no policy: everything passes until one is applied.
   async start() {
-    await this.#vm?.start();
+    await this.#startVm();
     this.#startedAt = Date.now();
+  }
+
+  // A VM starts out enforcing, whatever the one before it was doing.
+  async #startVm() {
+    await this.#vm?.start();
+    if (this.#shadow) await this.#vm?.setShadow(true);
+  }
+
+  get shadow() {
+    return this.#shadow;
+  }
+
+  /* Shadow mode is a dry run: the policy decides and counts as usual, and
+   * every packet passes. It is the firewall's, not a policy's, so it holds
+   * across `apply`.
+   */
+  async setShadow(on) {
+    this.#shadow = on;
+    await this.#vm?.setShadow(on);
   }
 
   async stop() {
@@ -66,11 +89,11 @@ export class Firewall {
 
     try {
       this.#vm = this.#vmOn(interfaces);
-      await this.#vm?.start();
+      await this.#startVm();
       this.#interfaces = interfaces;
     } catch (error) {
       this.#vm = was;
-      await was?.start();
+      await this.#startVm();
       await this.#enforceOnVm();
       throw error;
     }
@@ -79,7 +102,7 @@ export class Firewall {
   }
 
   async #enforceOnVm() {
-    if (this.#vm && this.#policy) await this.#vm.apply(this.#policy.compiled, this.#knobs.options(this.#policy));
+    if (this.#vm && this.#policy) await this.#vm.apply(this.#policy.compiled, { ...this.#knobs.options(this.#policy), shadow: this.#shadow });
   }
 
   get knobs() {
@@ -127,9 +150,19 @@ export class Firewall {
     this.#appliedAt = null;
   }
 
+  // One sample of the counters, for the speeds. Called once a second.
+  async sample() {
+    if (this.#vm) this.#rates.push(await this.#vm.stats(), Date.now());
+    else this.#rates.reset();
+  }
+
+  get rates() {
+    return this.#rates;
+  }
+
   // Attached to nothing, there is nothing to count.
   async stats() {
-    return this.#vm ? this.#vm.stats() : { shadow: false, rules: {} };
+    return this.#vm ? this.#vm.stats() : { shadow: this.#shadow, rules: {} };
   }
 
   status() {
@@ -147,9 +180,9 @@ export class Firewall {
   }
 
   // The status with the counters a person reads beside it.
-  async report() {
-    const stats = await this.stats();
+  async report(stats = null) {
+    stats ??= await this.stats();
     const counters = Object.fromEntries(COUNTERS.map((key) => [key, stats[key] ?? 0n]));
-    return { ...this.status(), shadow: stats.shadow, counters, rules: stats.rules };
+    return { ...this.status(), shadow: this.#shadow, shadowed: stats.shadowed ?? 0n, counters, rules: stats.rules };
   }
 }

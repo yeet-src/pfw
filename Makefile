@@ -1,21 +1,22 @@
 # Build the pfw service.
 #
 #   make           — build everything into dist/ (bundles + VM object + service file)
-#   make bundle    — bundle the three isolates with esbuild only
+#   make bundle    — bundle the four isolates with esbuild only
 #   make test      — run the unit tests under `yeet test`
-#   make apply     — `pfwctl up` on dist/: make the `pfw` service match it, and start it (needs yeetd)
+#   make apply     — `pfw up` on dist/: make the `pfw` service match it, and start it (needs yeetd)
 #   make remove    — stop and remove the `pfw` service
-#   make install   — install pfwctl into $(PREFIX)/bin and the built service into
-#                    $(PREFIX)/share/pfw, where `pfwctl up` finds it (default /usr/local)
+#   make install   — install pfw into $(PREFIX)/bin and the built service into
+#                    $(PREFIX)/share/pfw, where `pfw up` finds it (default /usr/local)
 #   make uninstall — remove both
-#   make pkg       — pack dist/ into pkg/<name>-<version>.tar.gz
+#   make pkg       — pack the command and dist/ into pkg/<name>-<version>.tar.gz, for install.sh
 #   make update    — move the pfw-core clone to the newest commit of its ref
 #   make clean     — remove build artifacts (keeps the pfw-core clone)
 #   make distclean — clean, and remove the pfw-core clone too
 #   make V=1       — show the commands behind the status lines
 #
 # dist/ is the whole service: the keeper (index.js), the firewall worker
-# (firewall.js), the scrape isolate (scrape.js), bin/vm.bpf.o and
+# (firewall.js), the scrape isolate (scrape.js), the metrics app (ui.js),
+# bin/vm.bpf.o and
 # service.toml sit side by side, so `yeet service import dist` (or the packed tarball) needs
 # nothing else from this tree.
 #
@@ -51,13 +52,14 @@ PFW_CORE ?= $(PFW_CORE_CLONE)
 PFW_CORE_ABS := $(abspath $(PFW_CORE))
 VM_OBJECT := $(PFW_CORE_ABS)/bin/vm.bpf.o
 
-SOURCES := $(shell find src -type f -name '*.js')
+SOURCES := $(shell find src -type f \( -name '*.js' -o -name '*.jsx' \))
 
 all: dist/index.js dist/bin/vm.bpf.o dist/service.toml
 	$(call done,$(NAME))
 	$(call artifact,dist/index.js)
 	$(call artifact,dist/firewall.js)
 	$(call artifact,dist/scrape.js)
+	$(call artifact,dist/ui.js)
 	$(call artifact,dist/bin/vm.bpf.o)
 	$(call artifact,dist/service.toml)
 
@@ -92,13 +94,14 @@ dist/service.toml: service.toml
 	$(call step,service,$@,mkdir -p dist && cp $< $@)
 
 # One bundle per isolate, side by side: the keeper opens the worker as
-# ./firewall.js, and the scrape unit runs ./scrape.js.
-ENTRIES := index=src/main.js firewall=src/firewall.js scrape=src/scrape.js
-BUNDLES := dist/index.js dist/firewall.js dist/scrape.js
+# ./firewall.js, the scrape unit runs ./scrape.js and the ui unit ./ui.js.
+ENTRIES := index=src/main.js firewall=src/firewall.js scrape=src/scrape.js ui=src/ui/main.jsx
+BUNDLES := dist/index.js dist/firewall.js dist/scrape.js dist/ui.js
 
 ESBUILD_FLAGS := --bundle --format=esm --platform=neutral --target=es2022 \
 	--main-fields=module,main --conditions=import,module \
 	--outdir=dist --log-level=warning \
+	--jsx=automatic --jsx-import-source=yeet:tui \
 	'--external:yeet:*'
 
 bundle: dist/index.js
@@ -109,10 +112,10 @@ dist/index.js: $(SOURCES) package.json $(PFW_CORE_ABS)/package.json $(CORE_STAMP
 test: node_modules/pfw-core
 	$(Q)$(YEET) test test
 
-# Through pfwctl, which knows a changed firewall must stop before its
+# Through pfw, which knows a changed firewall must stop before its
 # replacement can take the XDP hook.
 apply: all
-	$(Q)PFW_SOURCE=dist bin/pfwctl up
+	$(Q)PFW_SOURCE=dist bin/pfw up
 
 remove:
 	$(Q)$(YEET) service stop $(NAME) 2>/dev/null || true
@@ -126,15 +129,19 @@ AS_OWNER = $(shell d=$(BINDIR); while [ ! -e "$$d" ]; do d=$$(dirname "$$d"); do
 SHAREDIR := $(DESTDIR)$(PREFIX)/share/$(NAME)
 
 install: all
-	$(call step,install,$(BINDIR)/pfwctl,$(AS_OWNER) install -D -m 0755 bin/pfwctl $(BINDIR)/pfwctl)
+	$(call step,install,$(BINDIR)/pfw,$(AS_OWNER) install -D -m 0755 bin/pfw $(BINDIR)/pfw)
 	$(call step,install,$(SHAREDIR),$(AS_OWNER) install -D -m 0644 -t $(SHAREDIR) $(BUNDLES) && $(AS_OWNER) install -D -m 0644 dist/bin/vm.bpf.o $(SHAREDIR)/bin/vm.bpf.o && $(AS_OWNER) install -D -m 0644 dist/service.toml $(SHAREDIR)/service.toml)
 
 uninstall:
-	$(call step,remove,$(BINDIR)/pfwctl,$(AS_OWNER) rm -f $(BINDIR)/pfwctl)
+	$(call step,remove,$(BINDIR)/pfw,$(AS_OWNER) rm -f $(BINDIR)/pfw)
 	$(call step,remove,$(SHAREDIR),$(AS_OWNER) rm -rf $(SHAREDIR))
 
+# The package install.sh installs: the command and the service's files, laid
+# out as a prefix holds them (bin/pfw, share/pfw/), so installing is
+# unpacking. pkg/pfw.tar.gz is the same tarball under the name a release
+# publishes it by.
 pkg: all
-	$(call step,pkg,$(TARBALL),mkdir -p pkg && tar -czf $(TARBALL) -C dist .)
+	$(call step,pkg,$(TARBALL),rm -rf pkg/stage && mkdir -p pkg/stage/bin pkg/stage/share && cp -R dist pkg/stage/share/$(NAME) && install -m 0755 bin/pfw pkg/stage/bin/pfw && tar -czf $(TARBALL) -C pkg/stage bin share && cp $(TARBALL) pkg/$(NAME).tar.gz && rm -rf pkg/stage)
 	$(call artifact,$(TARBALL))
 
 clean:

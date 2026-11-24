@@ -11,6 +11,7 @@
  *   detach <name>[,<name>...]   let go of these interfaces
  *   apply                       compile its one source and enforce it
  *   clear                       stop enforcing, and pass everything
+ *   shadow, unshadow            dry run on and off: decide and count, block nothing
  *   check                       compile its sources and change nothing
  *   knobs                       a policy's knobs and what each holds
  *   knob-set <knob> <value>     set one, for that policy
@@ -65,7 +66,12 @@ export const commands = {
 
   async metrics(firewall) {
     const attached = firewall.interfaces.length > 0;
-    return { view: "metrics", ok: true, data: { attached, stats: await firewall.stats() } };
+    const { rates } = firewall;
+    return {
+      view: "metrics",
+      ok: true,
+      data: { attached, stats: await firewall.stats(), speeds: rates.speeds(), ruleSpeeds: rates.ruleSpeeds(), window: rates.seconds },
+    };
   },
 
   // Where the firewall's state is saved, and the module to save there.
@@ -109,6 +115,16 @@ export const commands = {
   async apply(firewall, { sources: [{ name, source }] }) {
     await firewall.enforce(new Policy(name, source));
     return statusOf(firewall, `applied ${name}`);
+  },
+
+  async shadow(firewall) {
+    await firewall.setShadow(true);
+    return statusOf(firewall, "shadow mode on: verdicts are counted, nothing is blocked");
+  },
+
+  async unshadow(firewall) {
+    await firewall.setShadow(false);
+    return statusOf(firewall, "shadow mode off: verdicts are enforced");
   },
 
   knobs(firewall, request) {

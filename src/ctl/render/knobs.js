@@ -1,4 +1,4 @@
-/* A policy's knobs as `pfwctl knob ls` prints them: what each holds now,
+/* A policy's knobs as `pfw knob ls` prints them: what each holds now,
  * whether that was set or is the policy's default, and what it is for.
  */
 import { splitName } from "#/ctl/render/format.js";
