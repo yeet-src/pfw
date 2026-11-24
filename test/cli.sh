@@ -87,6 +87,7 @@ refuses 'a remote is not added twice' 'already a remote named local' pfw remote 
 refuses 'a remote'"'"'s name is plain' 'letters, digits' pfw remote add 'a b' "$repo"
 has 'pull clones it and counts its policies' "$(pfw pull)" '2 policies'
 has 'pull again finds nothing new' "$(pfw pull)" 'up to date'
+has 'pull says where to go next' "$(pfw pull)" 'pfw apply NUMBER'
 refuses 'pull of an unknown remote is refused' 'no such remote' pfw pull nope
 
 # ---- naming a policy --------------------------------------------------------
@@ -127,7 +128,7 @@ has 'apply -f offers nothing: the shell completes a file' "[$(offers apply -f ''
 has 'unshadow offers --confirm' "$(offers unshadow '')" '--confirm'
 has 'unshadow --confirm offers times' "$(offers unshadow --confirm '')" '5m 10m 30m 1h'
 has 'pull offers the remotes' "$(offers pull '')" 'local'
-has 'ls offers the remotes and its filters' "$(offers ls '')" 'local --tag --severity'
+has 'ls offers the remotes and its filters' "$(offers ls '')" 'local --tag --severity --check'
 has 'ls --severity offers the levels' "$(offers ls --severity '')" 'critical high medium low'
 has 'remote offers its commands' "$(offers remote '')" 'add ls rm'
 has 'remote rm offers the remotes' "$(offers remote rm '')" 'local'

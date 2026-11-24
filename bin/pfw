@@ -24,7 +24,7 @@
 #   pfw remote ls                      the remotes, and the commit each is at
 #   pfw remote rm NAME                 forget one, and its clone
 #   pfw pull [NAME]                    fetch one remote, or all of them
-#   pfw ls [NAME] [WORD...]            the policies, compiled, the enforcing one marked;
+#   pfw ls [NAME] [WORD...]            the policies, the enforcing one marked (--check compiles them);
 #          [--tag TAG] [--severity LEVEL]   narrowed to a remote, a word, a tag, a severity
 #
 #   pfw apply [POLICY]         compile one policy and enforce it (`load` is the same)
@@ -190,7 +190,7 @@ help() {
 	row name 'pfw remote ls' 'the remotes, and the commit each is at'
 	row name 'pfw remote rm NAME' 'forget one, and its clone'
 	row name 'pfw pull [NAME]' 'fetch one remote, or all of them'
-	row name 'pfw ls [NAME] [WORD...]' 'the policies, compiled, the enforcing one marked'
+	row name 'pfw ls [NAME] [WORD...]' 'the policies, the enforcing one marked; --check compiles them'
 	row name '  --tag TAG  --severity LEVEL' 'only those with that tag, or of that severity'
 	say
 	say "$(label 'policy')"
@@ -467,6 +467,9 @@ pull() {
 	# Named on a line of its own: a refusal inside the loop's list would be lost.
 	pulled=$(chosen "${1:-}") || exit 1
 	for each in $pulled; do pull_one "$each"; done
+	# Where to go from here: the policies are on this host now, and none is
+	# enforced until one is applied.
+	[ "$format" = json ] || say "  $(note 'next:') $(name 'pfw ls') $(note 'lists them, numbered;') $(name 'pfw apply NUMBER') $(note 'enforces one')"
 }
 
 # ---- policies ---------------------------------------------------------------
@@ -479,8 +482,8 @@ policies() {
 	done
 }
 
-# The policies as the service sees them: numbered, compiled, in groups, the
-# enforcing one marked. Every policy is sent, and `$1` is the filters the
+# The policies as the service sees them: numbered, in groups, the enforcing
+# one marked, and compiled when --check asks for it. Every policy is sent, and `$1` is the filters the
 # service then chooses by, so a number is the same however the list was
 # narrowed. Without the service, the bare numbered list.
 list() {
@@ -531,7 +534,8 @@ ls_filters() {
 			filters="$filters severity=$2"
 			shift
 			;;
-		-*) die "pfw ls takes --tag TAG, --severity LEVEL, a remote's name, and words to search for" ;;
+		-c | --check) filters="$filters check=1" ;;
+		-*) die "pfw ls takes --check, --tag TAG, --severity LEVEL, a remote's name, and words to search for" ;;
 		*) if remote "$1"; then filters="$filters remote=$1"; else filters="$filters q=$1"; fi ;;
 		esac
 		shift
@@ -1430,7 +1434,7 @@ __complete() {
 		-t | --tag) ;;
 		*)
 			offer_remotes
-			offer --tag --severity
+			offer --tag --severity --check
 			;;
 		esac
 		;;

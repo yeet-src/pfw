@@ -126,11 +126,16 @@ Forgets a remote and deletes pfw's copy of it.
 Fetches one remote, or all, and says what changed. Changes nothing about what
 is running.
 
-### `pfw ls [NAME] [WORD...] [--tag TAG] [--severity LEVEL]`
+### `pfw ls [NAME] [WORD...] [--tag TAG] [--severity LEVEL] [--check]`
 
-Lists the policies, in groups by directory: number, whether it compiles,
-name, description, CVEs, severity, tags and knobs, with the one in place
-marked.
+Lists the policies, in groups by directory: number, name, description, CVEs,
+severity, tags and knobs, with the one in place marked. It reads each
+policy's opening comments and does not compile it, so it is quick however
+many there are.
+
+`--check` (`-c`) compiles each one as well, and adds whether it is sound, how
+many rules it has and what each knob holds. `pfw apply` compiles the policy it
+is given either way, and refuses one that does not compile.
 
 Narrowed by a remote's `NAME`; by any `WORD`, looked for in the name,
 description, CVEs, tags and what is patched; by `--tag` (`-t`); and by

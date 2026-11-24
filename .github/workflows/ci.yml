@@ -382,10 +382,12 @@ jobs:
         if: needs.release.result == 'skipped'
         with:
           name: package
-          path: pkg
+          # Outside the workspace: the checkout further down empties it, and
+          # the upgrade after that still needs this file.
+          path: ${{ runner.temp }}/pkg
       - name: Which package the one line installs
         run: |
-          if [ -f pkg/pfw.tar.gz ]; then echo "PFW_PACKAGE=$PWD/pkg/pfw.tar.gz" >> "$GITHUB_ENV"; fi
+          if [ -f "$RUNNER_TEMP/pkg/pfw.tar.gz" ]; then echo "PFW_PACKAGE=$RUNNER_TEMP/pkg/pfw.tar.gz" >> "$GITHUB_ENV"; fi
       - name: The one line
         env:
           YEET_API_KEY: ${{ secrets.YEET_API_KEY }}

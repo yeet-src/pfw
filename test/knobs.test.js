@@ -3,7 +3,7 @@ import { assert, assertEquals } from "yeet:assert";
 import { knobs as renderKnobs } from "#/ctl/render/knobs.js";
 import { palette } from "#/ctl/render/palette.js";
 import { Knobs } from "#/fw/knobs.js";
-import { Policy } from "#/fw/policy.js";
+import { Policy, compiledCount } from "#/fw/policy.js";
 
 const { test } = yeet;
 
@@ -27,6 +27,21 @@ const throws = (fn, text) => {
   }
   throw new Error(`Expected a refusal holding "${text}"`);
 };
+
+test("a source is compiled once, however many times it is asked for", () => {
+  const source = `pattern once = "compiled-once"; filter { if (scan(payload, 256) & once) decide drop("once"); decide pass; }`;
+  const first = new Policy("rules:a.pfc@1111111", source);
+  const before = compiledCount();
+  const again = new Policy("rules:b.pfc@2222222", source);
+
+  assertEquals(compiledCount(), before);
+  assert(first.compiled === again.compiled);
+  assertEquals(again.name, "rules:b.pfc@2222222");
+  assertEquals(again.rules, first.rules);
+
+  new Policy("rules:c.pfc@3333333", source + " ");
+  assertEquals(compiledCount(), before + 1);
+});
 
 test("a policy declares its knobs, with defaults and what they are for", () => {
   assertEquals(web().knobs, [

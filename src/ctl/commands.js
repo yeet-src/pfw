@@ -77,6 +77,20 @@ function checked(firewall, { name, source }) {
   }
 }
 
+/* A policy as its opening comments describe it, not compiled: what `pfw ls`
+ * shows unless it is asked to check. Reading the comments of twenty policies
+ * takes no time; compiling them takes seconds. The knobs are the ones the
+ * comments name, with what each is for and no value, except for the policy in
+ * force, whose values the firewall already holds.
+ */
+function listed(firewall, { name, source }) {
+  const meta = parseMeta(source);
+  const knobs = firewall.policy?.name === name
+    ? firewall.knobs.of(firewall.policy)
+    : Object.entries(meta.knobs ?? {}).map(([knob, about]) => ({ name: knob, about, set: false, unread: true }));
+  return { name, ok: true, checked: false, rules: [], errors: [], meta, knobs };
+}
+
 // The policy a knob command is about, and its arguments past the count.
 function knobRequest(firewall, { rest, sources: [given] }) {
   const policy = given ? new Policy(given.name, given.source) : firewall.knobTarget;
@@ -196,18 +210,22 @@ export const commands = {
     return knobsOf(firewall, policy, `${name} is back to its default for ${policy.key}`);
   },
 
-  /* Every source is compiled and numbered; the filters after the count then
-   * choose which are shown, so a number names the same policy however the
-   * list was narrowed.
+  /* Every source is numbered; the filters after the count then choose which
+   * are shown, so a number names the same policy however the list was
+   * narrowed. They are compiled only when asked to be (`check=1`, which is
+   * `pfw ls --check`): `apply` compiles the one it is given anyway, and
+   * refuses it if it does not.
    */
   check: (firewall, { rest, sources }) => {
-    const filters = parseFilters(rest.split(" ").slice(1).filter(Boolean));
-    const all = sources.map((source, i) => ({ ...checked(firewall, source), number: i + 1 }));
+    const words = rest.split(" ").slice(1).filter(Boolean);
+    const compiling = words.includes("check=1");
+    const filters = parseFilters(words.filter((word) => word !== "check=1"));
+    const all = sources.map((source, i) => ({ ...(compiling ? checked(firewall, source) : listed(firewall, source)), number: i + 1 }));
     const entries = select(all, filters);
     return {
       view: "catalog",
       ok: entries.every((e) => e.ok),
-      data: { entries, total: all.length, filtered: isFiltering(filters), active: firewall.policy?.name ?? null },
+      data: { entries, total: all.length, filtered: isFiltering(filters), active: firewall.policy?.name ?? null, checked: compiling },
     };
   },
 };
