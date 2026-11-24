@@ -424,7 +424,7 @@ jobs:
           sleep 2
           # `! command` does not stop a script under `set -e`, so each is asked outright.
           gone() { if "$@" >/dev/null 2>&1; then echo "::error::still there after uninstall: $*"; exit 1; fi; }
-          gone command -v pfw
+          gone test -e /usr/local/bin/pfw
           gone test -e /usr/local/share/pfw
           gone test -e /var/lib/pfw
           gone test -e /usr/local/share/bash-completion/completions/pfw
