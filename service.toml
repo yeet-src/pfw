@@ -31,7 +31,9 @@ isolate = "./ui.js"
 lazy = true
 
 [units.gateway]
-web-server = "http://0.0.0.0:9477"
+# Loopback: /ctl has no login, so whoever reaches this address can change the
+# policy. 0.0.0.0 opens all three routes to the network; see the README first.
+web-server = "http://127.0.0.1:9477"
 
 [units.gateway.routes."/metrics"]
 target = "scrape"
