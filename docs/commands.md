@@ -48,9 +48,13 @@ On a terminal, the dashboard. Otherwise, a page of text. See
 
 ## Interfaces
 
-### `pfw attach`
+### `pfw interfaces`
 
-Lists the machine's interfaces, the attached ones marked.
+Lists the machine's interfaces: which pfw is attached to, each one's state
+and addresses, which the default route goes through, and which another XDP
+program already holds. Ends with the command to attach to the one traffic
+from the network arrives on, when pfw is not on it. `pfw ifaces` is the same,
+and so is `pfw attach` with nothing after it.
 
 ### `pfw attach IFACE...` — saved
 

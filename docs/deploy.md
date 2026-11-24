@@ -35,7 +35,7 @@ Answer these three before you start. Write the answers down.
 
 | question | how to find out | example |
 |---|---|---|
-| Which interface does traffic arrive on? | `ip route show default` — the name after `dev` | `eth0` |
+| Which interface does traffic arrive on? | after installing, `pfw interfaces` marks it `default route`; before, `ip route show default` — the name after `dev` | `eth0` |
 | Which port is the service on? | `sudo ss -ltnp` — the port your web server is listening on | `80` |
 | Is that traffic encrypted when it reaches this machine? | Is it HTTPS, ending on this machine? | see below |
 
@@ -97,7 +97,14 @@ A `▲` about "no policy" is expected: you have not applied one yet.
 
 ### 5. Attach to your interface
 
-Use the interface name from step 2 in place of `eth0`:
+List the interfaces. The one marked `default route` is where traffic from
+the network arrives, and the last line gives you the command for it:
+
+```sh
+pfw interfaces
+```
+
+Attach to it, with its name in place of `eth0`, and let go of `lo`:
 
 ```sh
 pfw attach eth0
@@ -117,7 +124,7 @@ number climbing means pfw is seeing your traffic.
 
 - `another XDP program holds one of its interfaces`: something else is
   already attached there. See [Interfaces](interfaces.md).
-- `seen` stays at 0: wrong interface. `pfw attach` lists them all.
+- `seen` stays at 0: wrong interface. `pfw interfaces` lists them all.
 
 Nothing is blocked yet. There is no policy.
 
@@ -363,7 +370,8 @@ sudo ss -ltnp                         # your port
 curl -fsSL https://raw.githubusercontent.com/yeet-src/pfw/master/install.sh | sh
 pfw doctor
 
-pfw attach eth0 && pfw detach lo      # your interface
+pfw interfaces                        # which one is "default route"
+pfw attach eth0 && pfw detach lo      # that one
 pfw pull && pfw ls                    # choose a policy, note its name
 pfw knob set rules:http/crawlers.pfc port 80    # your policy, your port (if it has the knob)
 

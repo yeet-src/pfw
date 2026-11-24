@@ -6,23 +6,48 @@ traffic arriving on the interfaces it is **attached** to, and nothing else.
 ## Seeing them
 
 ```sh
-pfw attach
+pfw interfaces
 ```
 
 ```
-▸ lo        ifindex 1   up   attached
-  eth0      ifindex 2   up
-  docker0   ifindex 3   down
+▸  lo       up    127.0.0.1/8      attached  loopback: this machine talking to itself
+   eth0     up    203.0.113.7/24             default route: traffic from the network arrives here
+   eth1     up    10.0.0.5/24
+   docker0  down  172.17.0.1/16              down: nothing arrives here
+
+to filter traffic from the network: pfw attach eth0
 ```
 
-| name you may see | what it usually is |
+Each line is an interface: its name, whether it is up, its addresses, and
+what it is.
+
+- **`▸ … attached`** marks the ones pfw is on.
+- **`default route`** marks the one this machine reaches the rest of the
+  network through. Traffic from outside arrives there, so **that is usually
+  the one to attach to**, and the last line gives you the command.
+- **`another XDP program is on it`** means pfw cannot attach there: an
+  interface has room for one.
+
+Which one do you want?
+
+| you want to filter | attach to |
+|---|---|
+| traffic from the internet or your network | the `default route` interface |
+| traffic on a second network (a private subnet, a VPN) | the interface with that network's address |
+| traffic between programs on this machine | `lo` |
+| traffic to containers | the bridge they sit behind (`docker0`, `br-…`) |
+
+Names you may see:
+
+| name | what it usually is |
 |---|---|
 | `lo` | loopback: the machine talking to itself |
-| `eth0`, `ens5`, `enp1s0` | a wired or virtual network card: the one facing the network |
+| `eth0`, `ens5`, `enp1s0` | a wired or virtual network card |
 | `wlan0`, `wlp2s0` | wifi |
 | `docker0`, `br-…`, `veth…` | bridges and links made for containers |
+| `tun0`, `wg0`, `tailscale0` | a VPN |
 
-`▸` and `attached` mark the ones pfw is on.
+`pfw attach` with no interface named prints the same list.
 
 ## Attaching and detaching
 

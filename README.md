@@ -47,7 +47,8 @@ More in [Installing](docs/install.md).
 
 ```sh
 pfw doctor            # is everything in place?
-pfw attach eth0       # the interface to protect (pfw attach alone lists them)
+pfw interfaces        # which interface is which
+pfw attach eth0       # the one to protect
 pfw pull              # download the public policies
 pfw ls                # list them
 pfw shadow            # dry run on: decide and count, block nothing

@@ -33,7 +33,7 @@ A header line, ending in a newline:
 |---|---|---|
 | `status` | | the firewall's state and main counters |
 | `metrics` | | everything it has counted, and the speeds |
-| `interfaces` | | the host's interfaces, the attached ones marked |
+| `interfaces` | `[default=<names>] [xdp=<names>]` | the host's interfaces, the attached ones marked; the client says which the default route uses and which hold an XDP program, since the service cannot see either |
 | `attach` | `<name>[,<name>...]` | attach to these as well |
 | `detach` | `<name>[,<name>...]` | let go of these |
 | `apply` | `<bytes> <name>` then the source | compile a policy and enforce it |

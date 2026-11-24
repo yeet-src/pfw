@@ -77,14 +77,15 @@ Something else is attached to the interface. An interface has room for one.
 
 ```sh
 ip link show eth0          # "xdp" in the output means something is attached
-pfw attach                 # the other interfaces you could use
+pfw interfaces             # the other interfaces you could use
 ```
 
 Stop the other program, or attach pfw elsewhere.
 
 ### `No such interface: eth9 (have lo, eth0, …)`
 
-The name is wrong. The message lists the real ones; `pfw attach` does too.
+The name is wrong. The message lists the real ones; `pfw interfaces` does
+too.
 
 ### `this host is not logged in to yeet`
 
@@ -152,7 +153,7 @@ version. Traffic is not filtered for the moment it takes.
 In order:
 
 1. `pfw status`: does the first line say `shadow mode`? Then `pfw unshadow`.
-2. Is pfw on the right interface? `pfw attach`.
+2. Is pfw on the right interface? `pfw interfaces`.
 3. Is the traffic encrypted? pfw cannot read inside HTTPS. See
    [Security](security.md#what-pfw-does-not-see).
 4. Does the policy look at the right port? `pfw knob ls`.

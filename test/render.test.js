@@ -84,16 +84,39 @@ test("the catalog says when the active policy is from another revision", () => {
   assert(text.includes("active at old1234, this is new5678"));
 });
 
-test("interfaces mark the attached ones and the ones that are down", async () => {
+test("interfaces say which is attached, what each is, and which to attach to", async () => {
   const { interfaces } = await import("#/ctl/render/interfaces.js");
   const text = interfaces({
-    available: [{ name: "lo", index: 1, up: true }, { name: "eth0", index: 2, up: true }, { name: "docker0", index: 3, up: false }],
-    attached: ["eth0"],
+    available: [
+      { name: "lo", index: 1, up: true, loopback: true, addresses: ["127.0.0.1/8"] },
+      { name: "eth0", index: 2, up: true, loopback: false, addresses: ["10.0.0.5/24"] },
+      { name: "eth1", index: 3, up: true, loopback: false, addresses: [] },
+      { name: "docker0", index: 4, up: false, loopback: false, addresses: ["172.17.0.1/16"] },
+    ],
+    attached: ["lo"],
+    defaults: ["eth0"],
+    busy: ["eth1"],
   }, plain).split("\n");
 
-  assertEquals(text[0], "  lo      ifindex 1   up");
-  assertEquals(text[1], "▸ eth0    ifindex 2   up   attached");
-  assertEquals(text[2], "  docker0 ifindex 3   down");
+  assertEquals(text, [
+    "▸  lo       up    127.0.0.1/8    attached  loopback: this machine talking to itself",
+    "   eth0     up    10.0.0.5/24              default route: traffic from the network arrives here",
+    "   eth1     up                             another XDP program is on it: pfw cannot attach here",
+    "   docker0  down  172.17.0.1/16            down: nothing arrives here",
+    "",
+    "to filter traffic from the network: pfw attach eth0",
+  ]);
+});
+
+test("interfaces give no hint once the one that matters is attached", async () => {
+  const { interfaces } = await import("#/ctl/render/interfaces.js");
+  const text = interfaces({
+    available: [{ name: "eth0", index: 2, up: true, loopback: false, addresses: ["10.0.0.5/24"] }],
+    attached: ["eth0"],
+    defaults: ["eth0"],
+  }, plain);
+
+  assertEquals(text, "▸  eth0  up  10.0.0.5/24  attached  default route: traffic from the network arrives here");
 });
 
 test("status attached to nothing says nothing is filtered", () => {

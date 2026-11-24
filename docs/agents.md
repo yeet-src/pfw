@@ -55,7 +55,7 @@ order.
 
 First, find out and tell me, without changing anything:
 - `pfw doctor` and `pfw status` output
-- which interface the default route uses (ip route show default)
+- `pfw interfaces`, which marks the interface the default route uses
 - which ports are listening (sudo ss -ltnp), and which looks like the web
   service
 - whether traffic on that port is likely encrypted on arrival (is something
@@ -215,7 +215,8 @@ How it works:
 - One long-running service (run by yeet) owns the firewall. The `pfw`
   command talks to it. `pfw up` starts it, `pfw down` stops it.
 - It filters the interfaces it is attached to: `pfw attach IFACE`,
-  `pfw detach IFACE`. `pfw attach` alone lists them.
+  `pfw detach IFACE`. `pfw interfaces` lists them and marks the one the
+  default route uses, which is where traffic from the network arrives.
 - It runs ONE policy at a time. A policy is a .pfc file. `pfw apply`
   replaces whatever is running.
 - Policies come from git repositories ("remotes"): `pfw remote ls`,

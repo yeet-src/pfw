@@ -10,7 +10,8 @@
 #   pfw metrics                everything it has counted, and how fast: on a terminal,
 #                                 an app to explore it; piped, a page of text
 #
-#   pfw attach [IFACE...]      attach to these interfaces as well; alone, list them
+#   pfw interfaces             this machine's interfaces: which pfw is on, which to attach to
+#   pfw attach IFACE...        attach to these interfaces as well
 #   pfw detach IFACE...        let go of these interfaces
 #
 #   pfw remote add NAME URL [-r REF]   name a git repository of policies
@@ -167,7 +168,8 @@ help() {
 	row name 'pfw metrics' 'what it has counted and how fast: an app on a terminal, text when piped'
 	say
 	say "$(label 'interfaces')"
-	row name 'pfw attach [IFACE...]' 'attach to these as well; alone, list them'
+	row name 'pfw interfaces' 'this machine'\''s interfaces: which pfw is on, which to attach to'
+	row name 'pfw attach IFACE...' 'attach to these as well'
 	row name 'pfw detach IFACE...' 'let go of these'
 	say
 	say "$(label 'remotes')"
@@ -1103,6 +1105,24 @@ while getopts f: opt; do
 done
 shift $((OPTIND - 1))
 
+# The host's interfaces, as the service draws them. It cannot see the
+# host's routes or what else is attached, so for a service on this host it
+# is told: the interfaces the default route goes through, and the ones with
+# an XDP program on them.
+list_interfaces() {
+	told=''
+	if is_local && command -v ip >/dev/null 2>&1; then
+		defaults=$(ip -o route show default 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | sort -u | paste -sd, -)
+		held=''
+		for path in /sys/class/net/*; do
+			each=${path##*/}
+			if ip link show "$each" 2>/dev/null | grep -q 'xdp'; then held="${held:+$held,}$each"; fi
+		done
+		told="${defaults:+ default=$defaults}${held:+ xdp=$held}"
+	fi
+	printf '@%s interfaces%s\n' "$format" "$told" | send
+}
+
 # Interfaces named one an argument, or with commas, or both: as one list.
 together() {
 	old_ifs=$IFS
@@ -1145,7 +1165,11 @@ metrics)
 	printf '@%s metrics\n' "$format" | send
 	;;
 attach)
-	if [ $# -eq 0 ]; then printf '@%s interfaces\n' "$format" | send; else change "attach $(together "$@")"; fi
+	if [ $# -eq 0 ]; then list_interfaces; else change "attach $(together "$@")"; fi
+	;;
+interfaces | ifaces)
+	[ $# -eq 0 ] || usage
+	list_interfaces
 	;;
 detach)
 	[ $# -ge 1 ] || usage

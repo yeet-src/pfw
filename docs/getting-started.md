@@ -27,17 +27,19 @@ fails, `pfw doctor`.
 ## 2. Choose the interface to protect
 
 ```sh
-pfw attach
+pfw interfaces
 ```
 
 ```
-▸ lo     ifindex 1   up   attached
-  eth0   ifindex 2   up
+▸  lo    up  127.0.0.1/8      attached  loopback: this machine talking to itself
+   eth0  up  203.0.113.7/24             default route: traffic from the network arrives here
+
+to filter traffic from the network: pfw attach eth0
 ```
 
-That lists your machine's network interfaces. The one facing the network is
-usually called `eth0`, `ens5`, `enp1s0` or similar. Attach to it, and let go
-of `lo`:
+That lists your machine's network interfaces and says which is which. The one
+marked `default route` is where traffic from outside arrives, and the last
+line is the command to attach to it. Run it, and let go of `lo`:
 
 ```sh
 pfw attach eth0

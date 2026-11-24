@@ -6,7 +6,8 @@
  *
  *   status
  *   metrics                     everything the VM has counted
- *   interfaces                  the host's interfaces, the attached ones marked
+ *   interfaces [default=..] [xdp=..]   the host's interfaces: which are attached,
+ *                               and which to attach to
  *   attach <name>[,<name>...]   attach to these interfaces as well
  *   detach <name>[,<name>...]   let go of these interfaces
  *   apply                       compile its one source and enforce it
@@ -83,9 +84,21 @@ export const commands = {
     data: { path: state.path, module: state.moduleOf(firewall) },
   }),
 
-  async interfaces(firewall) {
+  /* What the service cannot see of the host, the command tells it:
+   * `default=<names>` is the interfaces the default route goes through, and
+   * `xdp=<names>` the ones with an XDP program on them. One of those that
+   * pfw is not attached to belongs to something else.
+   */
+  async interfaces(firewall, { rest }) {
+    const told = Object.fromEntries(rest.split(" ").filter(Boolean).map((word) => word.split("=")));
+    const names = (list) => (list ?? "").split(",").filter(Boolean);
     const attached = firewall.interfaces.map((i) => i.name);
-    return { view: "interfaces", ok: true, data: { available: await listInterfaces(), attached } };
+
+    return {
+      view: "interfaces",
+      ok: true,
+      data: { available: await listInterfaces(), attached, defaults: names(told.default), busy: names(told.xdp).filter((name) => !attached.includes(name)) },
+    };
   },
 
   async attach(firewall, { rest }) {
