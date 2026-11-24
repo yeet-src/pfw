@@ -10,7 +10,8 @@ name: ci
 # then `same-everywhere` checks the two architectures built the same engine
 # object, which is what lets one package serve both.
 #
-# A push to master or release/* that passes all of that is released: the
+# A push to master or release/* that passes all of that, the end-to-end test
+# included, is released: the
 # package is published as the next version's GitHub release, which
 # install.sh downloads (releases/latest/download/pfw.tar.gz).
 #
@@ -133,6 +134,8 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     name: build, install, e2e (${{ matrix.arch }})
+    outputs:
+      e2e: ${{ steps.login.outputs.in }}
     steps:
       - uses: actions/checkout@v4
 
@@ -161,19 +164,44 @@ jobs:
           sha256sum dist/bin/vm.bpf.o | cut -d ' ' -f 1 > vm.bpf.o.sha256
           cat vm.bpf.o.sha256
 
+      # yeet serves a login page in place of every route of a host that is not
+      # logged in, so driving a firewall takes a login. A key in the
+      # YEET_API_KEY secret gives the runner one. A pull request from a fork
+      # has no secrets: it installs and stops there.
+      - name: Log this runner in to yeet
+        id: login
+        env:
+          YEET_API_KEY: ${{ secrets.YEET_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$YEET_API_KEY" ]; then
+            echo "::warning::no YEET_API_KEY secret, so the firewall cannot be driven here: the end-to-end test is skipped, and nothing is released"
+            echo "in=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          yeet login --key "$YEET_API_KEY"
+          yeet whoami --quiet
+          echo "in=true" >> "$GITHUB_OUTPUT"
+
       - name: Install, as a user would
+        env:
+          LOGGED_IN: ${{ steps.login.outputs.in }}
         run: |
           set -euo pipefail
           # From outside the checkout, so install.sh installs the package and
-          # does not build. No login: CI has no account, and pfw needs none
-          # to run on this host.
+          # does not build.
           cp install.sh "$RUNNER_TEMP/install.sh"
           cd "$RUNNER_TEMP"
-          sh ./install.sh --package "$GITHUB_WORKSPACE/pkg/pfw.tar.gz" --no-login
+          if [ "$LOGGED_IN" = true ]; then
+            sh ./install.sh --package "$GITHUB_WORKSPACE/pkg/pfw.tar.gz"
+          else
+            sh ./install.sh --package "$GITHUB_WORKSPACE/pkg/pfw.tar.gz" --no-login --no-up
+          fi
           command -v pfw
           pfw --version
 
       - name: End to end
+        if: steps.login.outputs.in == 'true'
         run: make e2e
 
       - name: What the service says, if that failed
@@ -183,6 +211,10 @@ jobs:
           yeet service tree || true
           yeet ps || true
           sudo journalctl -u yeetd --no-pager -n 200 || true
+
+      - name: Log this runner out
+        if: always() && steps.login.outputs.in == 'true'
+        run: yeet logout || true
 
       - uses: actions/upload-artifact@v4
         with:
@@ -215,7 +247,8 @@ jobs:
 
   release:
     needs: [version, build, same-everywhere]
-    if: needs.version.outputs.release == 'true'
+    # Only what ran end to end is released.
+    if: needs.version.outputs.release == 'true' && needs.build.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     name: release ${{ needs.version.outputs.tag }}
     permissions:

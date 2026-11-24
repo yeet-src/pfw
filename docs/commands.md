@@ -52,11 +52,12 @@ On a terminal, the dashboard. Otherwise, a page of text. See
 
 Lists the machine's interfaces, the attached ones marked.
 
-### `pfw attach IFACE[,IFACE...]` — saved
+### `pfw attach IFACE...` — saved
 
-Attaches to these interfaces as well.
+Attaches to these interfaces as well. Name them with spaces between, or
+commas: `pfw attach eth0 eth1`.
 
-### `pfw detach IFACE[,IFACE...]` — saved
+### `pfw detach IFACE...` — saved
 
 Lets go of these interfaces. Detaching the last leaves pfw running and
 filtering nothing.

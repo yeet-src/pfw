@@ -45,6 +45,7 @@ It exits non-zero when something has to be fixed.
 | git | `git` is not installed; `pfw pull` needs it |
 | yeet | no `yeet` that runs is on your `PATH`; run the installer again |
 | PATH | an earlier `yeet` on `PATH` does not run here; pfw skips it, your shell will not |
+| login | this machine is not logged in to yeet; until it is, yeet answers for pfw with a login page |
 | daemon | yeet's background service is not answering |
 | build | the service's files are missing or incomplete; run the installer again |
 | service | the firewall is not installed in yeet, or is stopped; `pfw up` |
@@ -87,11 +88,15 @@ The name is wrong. The message lists the real ones; `pfw attach` does too.
 
 ### `this host is not logged in to yeet`
 
+yeet does not serve anything on a machine that is not logged in: it answers
+every request, pfw's included, with a login page. So the firewall can be
+running and `pfw` still cannot talk to it.
+
 ```sh
 yeet login
 ```
 
-then run the installer again.
+If it was the installer that said so, run it again afterwards.
 
 ### `the yeet daemon does not answer`
 

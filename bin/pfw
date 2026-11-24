@@ -10,8 +10,8 @@
 #   pfw metrics                everything it has counted, and how fast: on a terminal,
 #                                 an app to explore it; piped, a page of text
 #
-#   pfw attach [IFACE[,IFACE]] attach to these interfaces as well; alone, list them
-#   pfw detach IFACE[,IFACE]   let go of these interfaces
+#   pfw attach [IFACE...]      attach to these interfaces as well; alone, list them
+#   pfw detach IFACE...        let go of these interfaces
 #
 #   pfw remote add NAME URL [-r REF]   name a git repository of policies
 #                                         (`rules`, the public pfw-rules, is there to begin with)
@@ -166,8 +166,8 @@ help() {
 	row name 'pfw metrics' 'what it has counted and how fast: an app on a terminal, text when piped'
 	say
 	say "$(label 'interfaces')"
-	row name 'pfw attach [IFACE[,IFACE]]' 'attach to these as well; alone, list them'
-	row name 'pfw detach IFACE[,IFACE]' 'let go of these'
+	row name 'pfw attach [IFACE...]' 'attach to these as well; alone, list them'
+	row name 'pfw detach IFACE...' 'let go of these'
 	say
 	say "$(label 'remotes')"
 	row name 'pfw remote add NAME URL [-r REF]' 'name a git repository of policies'
@@ -249,6 +249,14 @@ dial() {
 	reply=$($DEADLINE "$YEET" dial "$PFW_URL" 2>/dev/null) || [ -n "$reply" ]
 }
 
+# yeet serves a login page in place of every route of a host that is not
+# logged in. That is not the firewall talking.
+gated() {
+	case $reply in *'Please login at:'*) return 0 ;; esac
+	return 1
+}
+NOT_LOGGED_IN='this host is not logged in to yeet, so yeet answers for the firewall with a login page: run `yeet login`'
+
 # No exchange waits forever: the service answers within its own 20s.
 DEADLINE=''
 ! command -v timeout >/dev/null 2>&1 || DEADLINE='timeout 30'
@@ -257,6 +265,7 @@ DEADLINE=''
 # the status says whether the service called it ok.
 ask() {
 	dial || die "the pfw service is not reachable, or did not answer, at $PFW_URL"
+	! gated || die "$NOT_LOGGED_IN"
 	case $1 in
 	json)
 		case $reply in '{"ok":true'*) return 0 ;; *) return 1 ;; esac
@@ -467,7 +476,10 @@ list() {
 		done <"$listed"
 	} >"$request"
 
-	if dial <"$request"; then
+	if dial <"$request" && gated; then
+		rm -f "$request" "$listed"
+		die "$NOT_LOGGED_IN"
+	elif [ -n "$reply" ]; then
 		[ "$format" = json ] || reply=${reply#*"
 "}
 		say "$reply"
@@ -680,6 +692,7 @@ up() {
 		[ "$tries" -lt 20 ] || die "the $PFW_SERVICE service started but does not answer at $PFW_URL"
 		sleep 0.5
 	done
+	! gated || die "the $PFW_SERVICE service is up, but $NOT_LOGGED_IN"
 	[ "$format" = json ] || reply=${reply#*"
 "}
 	say "$reply"
@@ -865,6 +878,9 @@ doctor() {
 	skipped=$(command -v yeet 2>/dev/null || true)
 	[ -z "$skipped" ] || [ "$skipped" = "$YEET" ] || "$skipped" --version >/dev/null 2>&1 ||
 		warned 'PATH' "$skipped comes first and does not run here" "pfw skips it, but a bare yeet will not: put $(dirname "$YEET") ahead of it"
+	if "$YEET" whoami --quiet >/dev/null 2>&1; then good 'login' 'this host is logged in'; else
+		warned 'login' 'this host is not logged in to yeet' 'yeet serves a login page in place of the firewall until it is: yeet login'
+	fi
 	if "$YEET" status >/dev/null 2>&1; then good 'daemon' 'yeetd answers'; else
 		failed 'daemon' 'yeetd does not answer' 'start the yeet daemon, and check that you may use its socket'
 		say
@@ -904,7 +920,9 @@ doctor() {
 
 	answers=''
 	if [ "$state" = running ]; then
-		if query status; then
+		if query status && gated; then
+			failed 'control' "yeet answers at $PFW_URL with a login page" 'this host is not logged in to yeet: yeet login'
+		elif [ -n "$reply" ]; then
 			answers=1
 			seen=$reply
 			good 'control' "answers at $PFW_URL"
@@ -1051,6 +1069,15 @@ while getopts f: opt; do
 done
 shift $((OPTIND - 1))
 
+# Interfaces named one an argument, or with commas, or both: as one list.
+together() {
+	old_ifs=$IFS
+	IFS=,
+	joined="$*"
+	IFS=$old_ifs
+	printf '%s\n' "$joined"
+}
+
 # A command that changes what a restart must come back to.
 change() {
 	printf '@%s %s\n' "$format" "$1" | send
@@ -1084,12 +1111,11 @@ metrics)
 	printf '@%s metrics\n' "$format" | send
 	;;
 attach)
-	[ $# -le 1 ] || usage
-	if [ $# -eq 0 ]; then printf '@%s interfaces\n' "$format" | send; else change "attach $1"; fi
+	if [ $# -eq 0 ]; then printf '@%s interfaces\n' "$format" | send; else change "attach $(together "$@")"; fi
 	;;
 detach)
-	[ $# -eq 1 ] || usage
-	change "detach $1"
+	[ $# -ge 1 ] || usage
+	change "detach $(together "$@")"
 	;;
 pull)
 	[ $# -le 1 ] || usage

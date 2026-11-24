@@ -38,14 +38,13 @@ expect() {
 	pass "$4"
 }
 
-# The servers are stopped by the files that hold their ids, on the way out.
-pids=$(mktemp)
+# Port 80 takes root. Each server's id is noted, to stop it on the way out.
+pids=''
 serve() {
-	sudo sh -c "python3 -m http.server $1 --bind 127.0.0.1 >/dev/null 2>&1 & echo \$! >> $pids"
+	pids="$pids $(sudo sh -c "python3 -m http.server $1 --bind 127.0.0.1 >/dev/null 2>&1 & echo \$!")"
 }
 stop_servers() {
-	while read -r pid; do sudo kill "$pid" 2>/dev/null || true; done <"$pids"
-	rm -f "$pids"
+	for pid in $pids; do sudo kill "$pid" 2>/dev/null || true; done
 }
 trap stop_servers EXIT
 serve "$PORT"

@@ -28,7 +28,7 @@ pfw attach
 
 ```sh
 pfw attach eth0          # add one
-pfw attach eth0,eth1     # or several
+pfw attach eth0 eth1     # or several (eth0,eth1 works too)
 pfw detach lo            # let one go
 ```
 

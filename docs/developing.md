@@ -104,6 +104,12 @@ and `release/*`, on x86_64 and on arm64:
 2. `install.sh` with that package, from outside the checkout;
 3. `make e2e` against the firewall that installed.
 
+The end-to-end step needs the runner logged in to yeet, which serves a login
+page in place of every route of a host that is not. It logs in with the key
+in the repository's `YEET_API_KEY` secret (`yeet login --key`). Without the
+secret, as on a pull request from a fork, CI builds, tests, packages and
+installs, skips the end-to-end test with a warning, and releases nothing.
+
 A last job checks that both architectures built a byte-identical
 `vm.bpf.o`, which is what lets one package serve both.
 
