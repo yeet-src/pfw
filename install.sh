@@ -9,6 +9,7 @@
 #   --package SRC      the package to install, a file or a URL, in place of a build
 #                      or the release (PFW_PACKAGE says the same)
 #   --no-login         do not require a yeet login
+#   --no-phone-home    when yeet is installed here, tell its installer not to report back
 #   --no-up            install only: leave the service for `pfw up`
 #   -h, --help         this
 #
@@ -31,7 +32,7 @@ RELEASE=https://github.com/yeet-src/pfw/releases/latest/download/pfw.tar.gz
 
 prefix=/usr/local
 package=${PFW_PACKAGE:-}
-want_login=1 want_up=1
+want_login=1 want_up=1 yeet_flags=''
 
 usage() {
 	sed -n '2,/^set -eu$/p' "$0" | sed -e '$d' -e 's/^# \{0,1\}//'
@@ -50,6 +51,7 @@ while [ $# -gt 0 ]; do
 		shift
 		;;
 	--no-login) want_login='' ;;
+	--no-phone-home) yeet_flags='--no-phone-home' ;;
 	--no-up) want_up='' ;;
 	-h | --help)
 		usage
@@ -125,8 +127,8 @@ find_yeet() {
 if ! YEET=$(find_yeet); then
 	command -v curl >/dev/null 2>&1 ||
 		die 'yeet' 'not installed, and neither is curl to fetch it' "install curl, or yeet by hand: $YEET_INSTALLER"
-	doing 'yeet' "not installed: installing it with  curl -fsSL $YEET_INSTALLER | sh"
-	curl -fsSL "$YEET_INSTALLER" | sh || die 'yeet' 'its installer failed' "run it by hand to see why:  curl -fsSL $YEET_INSTALLER | sh"
+	doing 'yeet' "not installed: installing it with  curl -fsSL $YEET_INSTALLER | sh${yeet_flags:+ -s -- $yeet_flags}"
+	curl -fsSL "$YEET_INSTALLER" | sh -s -- $yeet_flags || die 'yeet' 'its installer failed' "run it by hand to see why:  curl -fsSL $YEET_INSTALLER | sh"
 
 	# Its installer may have put it where this shell does not look yet.
 	PATH=$PATH:/usr/local/bin:$HOME/.local/bin:$HOME/.yeet/bin

@@ -59,6 +59,7 @@ curl -fsSL https://raw.githubusercontent.com/yeet-src/pfw/master/install.sh | YE
 ```
 
 | `--no-up` | install only; start the firewall later with `pfw up` |
+| `--no-phone-home` | when yeet is installed here, pass its installer the same flag, so it does not report back |
 
 ## Checking the install
 

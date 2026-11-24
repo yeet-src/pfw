@@ -295,7 +295,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/install.sh" -o install.sh
-          sh ./install.sh --package pkg/pfw.tar.gz
+          sh ./install.sh --package pkg/pfw.tar.gz --no-phone-home
       - name: Attach to the card the default route uses
         run: |
           set -euo pipefail
@@ -368,7 +368,10 @@ jobs:
       - name: The one line
         env:
           YEET_API_KEY: ${{ secrets.YEET_API_KEY }}
-        run: curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/install.sh" | sh
+        # --no-phone-home, here and wherever CI installs yeet: its installer
+        # otherwise reports the runner's OS version on exit. It is the one
+        # thing this adds to the README's line.
+        run: curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/install.sh" | sh -s -- --no-phone-home
       - name: What it installed
         run: |
           set -euo pipefail
