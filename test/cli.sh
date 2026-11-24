@@ -90,20 +90,6 @@ has 'pull again finds nothing new' "$(pfw pull)" 'up to date'
 has 'pull says where to go next' "$(pfw pull)" 'pfw apply NUMBER'
 refuses 'pull of an unknown remote is refused' 'no such remote' pfw pull nope
 
-# ---- doctor before the service exists ---------------------------------------
-
-# With no firewall yet, doctor says so as a fault; told that `pfw up` is the
-# next step, as the installer tells it, it says so as a step.
-if said=$(pfw doctor 2>&1); then :; fi
-case $said in
-*'there is no pfw service'*)
-	has 'doctor calls a missing service a fault' "$said" 'there is no pfw service'
-	said=$(PFW_BEFORE_UP=1 pfw doctor 2>&1) || true
-	has 'before pfw up, a missing service is a step to come' "$said" 'not created yet'
-	case $said in *'there is no pfw service'*) fail 'before pfw up, doctor still calls a missing service a fault' ;; esac
-	;;
-esac
-
 # ---- naming a policy --------------------------------------------------------
 
 said=$(pfw ls 2>&1) || true

@@ -211,10 +211,14 @@ jobs:
           cp install.sh "$RUNNER_TEMP/install.sh"
           cd "$RUNNER_TEMP"
           if [ "$LOGGED_IN" = true ]; then
-            sh ./install.sh --package "$GITHUB_WORKSPACE/pkg/pfw.tar.gz"
+            sh ./install.sh --package "$GITHUB_WORKSPACE/pkg/pfw.tar.gz" 2>&1 | tee install.log
           else
-            sh ./install.sh --package "$GITHUB_WORKSPACE/pkg/pfw.tar.gz" --no-login --no-up
+            sh ./install.sh --package "$GITHUB_WORKSPACE/pkg/pfw.tar.gz" --no-login --no-up 2>&1 | tee install.log
           fi
+          # A clean install has nothing to fix. The firewall is not up when the
+          # installer checks the host, and that is a step to come, not a fault.
+          if grep -q 'to fix' install.log; then echo "::error::a clean install said something was to fix"; exit 1; fi
+          grep -q 'not created yet' install.log
           command -v pfw
           pfw --version
           # Tab completion came with it, and completes.
