@@ -6,6 +6,10 @@ New here? Read these three, in order:
 2. [Getting started](getting-started.md)
 3. [Security](security.md)
 
+Putting it in front of real traffic? Follow
+[Deploying, step by step](deploy.md). Rather have a coding agent do it?
+[Setting up with an AI agent](agents.md).
+
 ## Using pfw
 
 | | |

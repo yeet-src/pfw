@@ -68,7 +68,8 @@ pfw ls
 [pfw-rules](https://github.com/yeet-src/pfw-rules) repository; `ls` lists
 them. Reading one entry:
 
-- **`2`** is its number, the short way to name it.
+- **`2`** is its number, a shortcut for its name. Numbers follow the list, so
+  they change when policies are added; the name does not.
 - **`✔`** means it compiles. A `✘` would show the error instead.
 - **`rules:http/crawlers.pfc`** is its full name: the repository, then the
   file.
@@ -80,10 +81,11 @@ them. Reading one entry:
 
 ```sh
 pfw shadow
-pfw apply 2
+pfw apply rules:http/crawlers.pfc
 ```
 
-`shadow` turns on the dry run. `apply 2` puts policy 2 in place. Now let some
+`shadow` turns on the dry run. `apply` puts that policy in place (its number
+from the list would do as well). Now let some
 traffic through for a while, then look:
 
 ```sh
@@ -130,6 +132,8 @@ That is all of it:
 
 ## Where next
 
+- [Deploying, step by step](deploy.md): the careful version of this, for a
+  machine with real traffic on it.
 - [Using policies](policies.md): your own repositories, updating, clearing.
 - [Writing a policy](writing-policies.md): make one of your own.
 - [Security](security.md): before pfw's port is reachable from anywhere else.

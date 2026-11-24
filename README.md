@@ -49,16 +49,18 @@ More in [Installing](docs/install.md).
 pfw doctor            # is everything in place?
 pfw attach eth0       # the interface to protect (pfw attach alone lists them)
 pfw pull              # download the public policies
-pfw ls                # list them, numbered
+pfw ls                # list them
 pfw shadow            # dry run on: decide and count, block nothing
-pfw apply 2           # put policy 2 in place
+pfw apply rules:http/crawlers.pfc   # put a policy in place
 pfw status            # "would block N" is what it would have stopped
 pfw unshadow          # make it real
 pfw metrics           # the dashboard
 ```
 
 [Getting started](docs/getting-started.md) walks through each of those with
-what you should see.
+what you should see. For a machine with real traffic on it, follow
+[Deploying, step by step](docs/deploy.md). Or let a coding agent do it:
+[Setting up with an AI agent](docs/agents.md).
 
 ## Documentation
 
@@ -66,6 +68,8 @@ what you should see.
 |---|---|
 | [Installing](docs/install.md) | what you need, the installer, upgrading, uninstalling |
 | [Getting started](docs/getting-started.md) | from a fresh install to an enforcing policy |
+| [Deploying, step by step](docs/deploy.md) | a checklist for real traffic: every step with what to check and how to back out |
+| [Setting up with an AI agent](docs/agents.md) | prompts to paste into a coding agent to install, deploy, write a policy, or diagnose |
 | [Interfaces](docs/interfaces.md) | choosing what pfw filters |
 | [Using policies](docs/policies.md) | repositories, listing, applying, shadow mode |
 | [Knobs](docs/knobs.md) | changing a policy's values without editing it |
