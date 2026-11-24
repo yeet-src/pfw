@@ -187,6 +187,37 @@ Removes the policy. Everything passes, pfw stays attached and keeps counting
 packets. This is the fast way out when a policy is blocking something it
 should not. Bans already in place still stand until they expire.
 
+## The states pfw can be in
+
+<!-- diagram: states -->
+```mermaid
+stateDiagram-v2
+    [*] --> Down
+    Down --> Passing: pfw up
+    Passing --> Down: pfw down
+
+    state "up, no policy: everything passes" as Passing
+    state "shadow: decides and counts, blocks nothing" as Shadow
+    state "enforcing: verdicts are real" as Enforcing
+    state "attached to nothing: filters nothing, keeps its policy" as Detached
+    state "down: not running, nothing is filtered" as Down
+
+    Passing --> Shadow: pfw shadow, then pfw apply
+    Passing --> Enforcing: pfw apply
+    Shadow --> Enforcing: pfw unshadow
+    Enforcing --> Shadow: pfw shadow
+    Shadow --> Passing: pfw clear
+    Enforcing --> Passing: pfw clear
+
+    Enforcing --> Detached: pfw detach, the last interface
+    Detached --> Enforcing: pfw attach
+
+    Enforcing --> Down: pfw down
+    Shadow --> Down: pfw down
+    Down --> Enforcing: pfw up, as it was left
+```
+<!-- /diagram -->
+
 ## More than one policy at once
 
 Not today. `apply` replaces what is running. To combine two policies, their

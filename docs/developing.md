@@ -100,6 +100,19 @@ loopback, and `E2E_DAEMON_RESTART=yes` adds a restart of the yeet daemon.
 `test/ui.sh` opens the metrics app in a tmux pane, sends it keys and a click,
 and reads back what the pane shows. It changes nothing.
 
+### Diagrams
+
+The diagrams in the documentation are [Mermaid](https://mermaid.js.org),
+one `.mmd` file each in `assets/`. Edit the file there, then copy it into the
+pages that show it:
+
+```sh
+assets/embed.sh
+```
+
+A page says where a diagram goes with `<!-- diagram: NAME -->` and
+`<!-- /diagram -->`. `make test` fails when a page is behind its file.
+
 ## CI and releases
 
 `.github/workflows/ci.yml` runs on pull requests and on pushes to `master`
@@ -137,6 +150,32 @@ kernels older than the oldest hosted image.
 **A push to `master` that passes is released.** There is no tagging by hand:
 CI works out the next version, publishes the package as that GitHub release,
 and marks it Latest, which is what `install.sh` downloads.
+
+<!-- diagram: release -->
+```mermaid
+flowchart TD
+    push(["push to master"]) --> version["next version<br/>from the bump markers since the last release"]
+    version --> build
+
+    subgraph build["on x86_64 and arm64, each on two kernels"]
+        direction TB
+        b1["build, unit tests, package"] --> b2["install.sh with that package"]
+        b2 --> b3["end to end on loopback,<br/>through a restart of the daemon"]
+        b3 --> b4["the metrics app, in tmux"]
+        b4 --> b5["end to end across an interface"]
+    end
+
+    build --> same["one engine object:<br/>every build made the same vm.bpf.o"]
+    build --> nic["the runner's own network card<br/>does not gate the release"]
+    same --> release["release: publish pfw.tar.gz,<br/>marked Latest"]
+    release --> stranger["a blank machine and the README's one line,<br/>then end to end against what it installed"]
+
+    classDef gate fill:#3b0764,stroke:#c084fc,color:#faf5ff
+    classDef ship fill:#052e16,stroke:#4ade80,color:#f0fdf4
+    class same gate
+    class release,stranger ship
+```
+<!-- /diagram -->
 
 ### Versions
 

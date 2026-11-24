@@ -63,6 +63,46 @@ what you should see. For a machine with real traffic on it, follow
 [Deploying, step by step](docs/deploy.md). Or let a coding agent do it:
 [Setting up with an AI agent](docs/agents.md).
 
+## How it works
+
+<!-- diagram: architecture -->
+```mermaid
+flowchart TB
+    you(["you"]) -->|"pfw command"| ctl
+    prom(["Prometheus"]) -->|"scrape"| metrics
+    you -->|"pfw metrics"| ui
+
+    subgraph gateway["gateway: the web server, 127.0.0.1:9477"]
+        metrics["/metrics"]
+        ctl["/ctl"]
+        ui["/ui"]
+    end
+
+    metrics --> scrape["scrape<br/>one isolate per request"]
+    ctl --> keeper["keeper<br/>always running"]
+    ui --> app["metrics app<br/>one isolate per viewer"]
+
+    scrape --> firewall
+    keeper --> firewall
+    app --> firewall
+
+    firewall[["firewall: a shared worker<br/>policy, knobs, counters, saved state"]]
+    firewall --> engine["pfw-core engine<br/>at XDP, in the kernel"]
+    engine --- nic(["network interface"])
+
+    classDef outside fill:#1f2937,stroke:#9ca3af,color:#f9fafb
+    classDef one fill:#3b0764,stroke:#c084fc,color:#faf5ff
+    classDef kernel fill:#052e16,stroke:#4ade80,color:#f0fdf4
+    class you,prom,nic outside
+    class firewall one
+    class engine kernel
+```
+<!-- /diagram -->
+
+The `pfw` command talks to a service that owns the firewall; the firewall
+runs your policy in the kernel, on the interfaces you attached it to. More in
+[How it works](docs/architecture.md).
+
 ## Documentation
 
 | | |

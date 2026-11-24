@@ -1,0 +1,20 @@
+flowchart TD
+    start(["curl ... install.sh | sh"]) --> linux{"Linux?"}
+    linux -->|"no"| stop1(["stops: pfw needs Linux"])
+    linux -->|"yes"| yeet{"yeet installed?"}
+    yeet -->|"no"| getyeet["install yeet"] --> daemon
+    yeet -->|"yes"| daemon["wait for the yeet daemon"]
+    daemon --> login{"logged in to yeet?"}
+    login -->|"no, and YEET_API_KEY is set"| key["log in with the key"] --> get
+    login -->|"no"| browser["yeet login, in your browser"] --> get
+    login -->|"yes"| get{"run from a checkout?"}
+    get -->|"yes"| build["build pfw"] --> place
+    get -->|"no"| download["download the latest release"] --> place
+    place["put pfw in /usr/local/bin<br/>and the service in /usr/local/share/pfw"] --> doctor["pfw doctor"]
+    doctor --> up["pfw up"]
+    up --> done(["the firewall is up, on lo,<br/>blocking nothing"])
+
+    classDef stop fill:#450a0a,stroke:#f87171,color:#fef2f2
+    classDef good fill:#052e16,stroke:#4ade80,color:#f0fdf4
+    class stop1 stop
+    class done good

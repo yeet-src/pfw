@@ -1,0 +1,20 @@
+sequenceDiagram
+    participant pfw as pfw command
+    participant firewall as firewall worker
+    participant disk as /var/lib/pfw/state.js
+
+    Note over firewall: an isolate has no disk of its own
+
+    rect rgb(30, 41, 59)
+        Note over pfw,disk: after attach, detach, apply, clear, shadow, knob
+        pfw->>firewall: saved
+        firewall-->>pfw: interfaces, policy, knobs, shadow mode, as a JavaScript module
+        pfw->>disk: write the module
+    end
+
+    rect rgb(20, 40, 30)
+        Note over pfw,disk: on restart, upgrade or reboot
+        firewall->>disk: import the module
+        disk-->>firewall: the state as it was left
+        firewall->>firewall: attach the interfaces, enforce the policy, set the knobs
+    end

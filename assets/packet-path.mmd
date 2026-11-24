@@ -1,0 +1,24 @@
+flowchart TD
+    wire(["a packet arrives on an attached interface"]) --> hook["XDP hook: pfw's engine runs first,<br/>before the rest of the system"]
+    hook --> standing{"is the sender banned,<br/>or its connection already decided?"}
+    standing -->|"yes"| enforce["the standing verdict applies"]
+    standing -->|"no"| policy["the policy runs, top to bottom,<br/>until a decide"]
+    policy --> verdict{"verdict"}
+
+    verdict -->|"pass"| through(["on to the system, as if pfw were not there"])
+    verdict -->|"count"| counted["counted against its rule"] --> through
+    verdict -->|"drop, rst, ban"| shadow{"shadow mode?"}
+
+    shadow -->|"on"| would["counted as would block"] --> through
+    shadow -->|"off"| blocked["counted against its rule"]
+    blocked --> drop(["drop: discarded silently"])
+    blocked --> rst(["rst: connection cut, both ends told"])
+    blocked --> ban(["ban: sender blocked for a while"])
+    enforce --> drop
+
+    classDef good fill:#052e16,stroke:#4ade80,color:#f0fdf4
+    classDef stop fill:#450a0a,stroke:#f87171,color:#fef2f2
+    classDef dry fill:#422006,stroke:#facc15,color:#fefce8
+    class through good
+    class drop,rst,ban stop
+    class would,shadow dry

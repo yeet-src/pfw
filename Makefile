@@ -121,6 +121,7 @@ SCRIPTS := bin/pfw install.sh test/e2e.sh
 
 test: node_modules/pfw-core
 	$(Q)for script in $(SCRIPTS); do sh -n $$script || exit 1; done
+	$(Q)sh assets/embed.sh --check
 	$(Q)$(YEET) test test
 
 # Through pfw, which knows a changed firewall must stop before its

@@ -1,0 +1,24 @@
+stateDiagram-v2
+    [*] --> Down
+    Down --> Passing: pfw up
+    Passing --> Down: pfw down
+
+    state "up, no policy: everything passes" as Passing
+    state "shadow: decides and counts, blocks nothing" as Shadow
+    state "enforcing: verdicts are real" as Enforcing
+    state "attached to nothing: filters nothing, keeps its policy" as Detached
+    state "down: not running, nothing is filtered" as Down
+
+    Passing --> Shadow: pfw shadow, then pfw apply
+    Passing --> Enforcing: pfw apply
+    Shadow --> Enforcing: pfw unshadow
+    Enforcing --> Shadow: pfw shadow
+    Shadow --> Passing: pfw clear
+    Enforcing --> Passing: pfw clear
+
+    Enforcing --> Detached: pfw detach, the last interface
+    Detached --> Enforcing: pfw attach
+
+    Enforcing --> Down: pfw down
+    Shadow --> Down: pfw down
+    Down --> Enforcing: pfw up, as it was left

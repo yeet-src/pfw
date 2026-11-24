@@ -1,0 +1,27 @@
+sequenceDiagram
+    actor you
+    participant pfw as pfw command
+    participant keeper
+    participant firewall as firewall worker
+    participant engine as engine in the kernel
+    participant disk as /var/lib/pfw/state.js
+
+    you->>pfw: pfw apply rules:http/crawlers.pfc
+    pfw->>pfw: read the file from its clone of the repository
+    pfw->>keeper: apply, and the policy's source (yeet dial /ctl)
+    keeper->>firewall: the whole request
+    firewall->>firewall: compile
+
+    alt it does not compile
+        firewall-->>pfw: refused, with the line
+        pfw-->>you: the error. The running policy is untouched
+    else it compiles
+        firewall->>engine: write the tables, then flip one switch
+        Note over engine: the next packet runs the new policy
+        firewall-->>keeper: status, already formatted
+        keeper-->>pfw: status
+        pfw-->>you: applied, and the status block
+        pfw->>keeper: saved
+        keeper-->>pfw: the firewall's state, as a module
+        pfw->>disk: write it
+    end

@@ -1,0 +1,21 @@
+flowchart LR
+    install["install"] --> doctor["pfw doctor"]
+    doctor --> ifaces["pfw interfaces<br/>pfw attach"]
+    ifaces --> pull["pfw pull"]
+    pull --> ls["pfw ls<br/>choose a policy"]
+    ls --> knob["pfw knob set<br/>if it has knobs"]
+    knob --> shadow["pfw shadow<br/>pfw apply"]
+    shadow --> check{"would block<br/>looks right?"}
+    check -->|"no"| ls
+    check -->|"yes"| unshadow["pfw unshadow"]
+    unshadow --> watch["pfw status<br/>pfw metrics"]
+    watch -->|"a newer version, or another policy"| pull
+    unshadow -.->|"something is wrong"| clear["pfw clear"]
+    clear -.-> ls
+
+    classDef dry fill:#422006,stroke:#facc15,color:#fefce8
+    classDef live fill:#052e16,stroke:#4ade80,color:#f0fdf4
+    classDef out fill:#450a0a,stroke:#f87171,color:#fef2f2
+    class shadow,check dry
+    class unshadow,watch live
+    class clear out
