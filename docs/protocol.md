@@ -39,7 +39,7 @@ A header line, ending in a newline:
 | `apply` | `<bytes> <name>` then the source | compile a policy and enforce it |
 | `clear` | | stop enforcing |
 | `shadow`, `unshadow` | | the dry run, on and off |
-| `check` | `<count> [<first>]` then the sources | compile policies and change nothing |
+| `check` | `<count> [<filter>...]` then the sources | compile policies, change nothing, and list those the filters choose |
 | `knobs` | `<0\|1>` | a policy's knobs |
 | `knob-set` | `<0\|1> <knob> <value>` | set one |
 | `knob-unset` | `<0\|1> <knob>` | back to its default |
@@ -58,8 +58,11 @@ exactly that many bytes:
 - `apply` puts the `<bytes> <name>` on its own header line, and the source
   follows.
 - `check <count>` is followed by `<count>` sources, each with its own line.
-  `<first>` is the number the list starts at, for a filtered list that keeps
-  the numbering of the whole one.
+  Every one is compiled and numbered by its place; the filters then choose
+  which are listed, so a number means the same policy however the list was
+  narrowed. A filter is `remote=<name>`, `tag=<tag>`, `severity=<level>` or
+  `q=<word>`; `tag` and `q` given twice need both, `remote` and `severity`
+  either.
 - The knob verbs take `1` when a source follows (the policy they are about)
   and `0` when they mean the policy in place.
 

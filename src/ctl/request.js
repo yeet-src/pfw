@@ -4,7 +4,7 @@
  *
  *   [@<format> ]<verb> [<rest>]
  *   apply <bytes> <name>\n<bytes of pfw-C>
- *   check <count> [<first>]\n  then <count> of  <bytes> <name>\n<bytes of pfw-C>
+ *   check <count> [<filter>...]\n  then <count> of  <bytes> <name>\n<bytes of pfw-C>
  *   knobs <0|1>, knob-set <0|1> <knob> <value>, knob-unset <0|1> <knob>
  *                    then, for 1, the one policy they are about
  *
@@ -42,10 +42,10 @@ async function optionalSource(rest, stream) {
 const SOURCES = {
   apply: async (rest, stream) => [await readSource(rest, stream)],
 
-  // `<count> [<first>]`: `first` is the number the list starts at.
+  // `<count> [<filter>...]`: the count of sources, then what to show of them.
   async check(rest, stream) {
-    const [, count] = rest.match(/^(\d+)(?: \d+)?$/) ?? [];
-    if (!count || Number(count) > MAX_CHECKED) throw new Error(`Usage: check <count> [<first>], at most ${MAX_CHECKED}`);
+    const [count] = rest.split(" ");
+    if (!/^\d+$/.test(count) || Number(count) > MAX_CHECKED) throw new Error(`Usage: check <count> [<filter>...], at most ${MAX_CHECKED}`);
 
     const sources = [];
     for (let i = 0; i < Number(count); i++) sources.push(await readSource(await stream.line(MAX_HEADER_BYTES), stream));

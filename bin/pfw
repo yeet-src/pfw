@@ -18,7 +18,8 @@
 #   pfw remote ls                      the remotes, and the commit each is at
 #   pfw remote rm NAME                 forget one, and its clone
 #   pfw pull [NAME]                    fetch one remote, or all of them
-#   pfw ls [NAME]                      the policies, compiled, the enforcing one marked
+#   pfw ls [NAME] [WORD...]            the policies, compiled, the enforcing one marked;
+#          [--tag TAG] [--severity LEVEL]   narrowed to a remote, a word, a tag, a severity
 #
 #   pfw apply [POLICY]         compile one policy and enforce it (`load` is the same)
 #   pfw apply -f FILE          the same, from a local file
@@ -174,7 +175,8 @@ help() {
 	row name 'pfw remote ls' 'the remotes, and the commit each is at'
 	row name 'pfw remote rm NAME' 'forget one, and its clone'
 	row name 'pfw pull [NAME]' 'fetch one remote, or all of them'
-	row name 'pfw ls [NAME]' 'the policies, compiled, the enforcing one marked'
+	row name 'pfw ls [NAME] [WORD...]' 'the policies, compiled, the enforcing one marked'
+	row name '  --tag TAG  --severity LEVEL' 'only those with that tag, or of that severity'
 	say
 	say "$(label 'policy')"
 	row name 'pfw apply [POLICY]' 'compile one policy and enforce it (load is the same)'
@@ -456,21 +458,16 @@ policies() {
 	done
 }
 
-# The policies as the service sees them: numbered, compiled, the enforcing
-# one marked. Without the service, the bare numbered list.
+# The policies as the service sees them: numbered, compiled, in groups, the
+# enforcing one marked. Every policy is sent, and `$1` is the filters the
+# service then chooses by, so a number is the same however the list was
+# narrowed. Without the service, the bare numbered list.
 list() {
-	first=1
-	if [ -n "${1:-}" ]; then
-		remote "$1" || die "no such remote: $1 (pfw remote ls)"
-		# Numbered as in the whole list, since that is what `load` counts in.
-		first=$(policies | cut -f 1 | grep -n -x -- "$1" | head -n 1 | cut -d : -f 1)
-		first=${first:-1}
-	fi
 	listed=$(mktemp)
-	policies "${1:-}" >"$listed"
+	policies >"$listed"
 	request=$(mktemp)
 	{
-		printf '@%s check %s %s\n' "$format" "$(($(wc -l <"$listed")))" "$first"
+		printf '@%s check %s%s\n' "$format" "$(($(wc -l <"$listed")))" "${1:+ $1}"
 		while IFS=$TAB read -r from path; do
 			policy_frame "$(remote_dir "$from")/$path" "$from:$path@$(rev "$from")"
 		done <"$listed"
@@ -480,14 +477,45 @@ list() {
 		rm -f "$request" "$listed"
 		die "$NOT_LOGGED_IN"
 	elif [ -n "$reply" ]; then
+		verdict=${reply%%"
+"*}
 		[ "$format" = json ] || reply=${reply#*"
 "}
 		say "$reply"
+		rm -f "$request" "$listed"
+		# A filter the service refused is an error; a policy that does not
+		# compile is only something the list shows.
+		case $reply in *'Unknown filter'*) return 1 ;; esac
+		return 0
 	else
-		caution "the pfw service is not reachable at $PFW_URL, so nothing was compiled"
-		tr "$TAB" ':' <"$listed" | nl -v "$first" -w 3 -s ' '
+		caution "the pfw service is not reachable at $PFW_URL, so nothing was compiled or filtered"
+		tr "$TAB" ':' <"$listed" | nl -w 3 -s ' '
 	fi
 	rm -f "$request" "$listed"
+}
+
+# `pfw ls` arguments into the filters the service takes: a remote's name
+# chooses that remote, any other word is searched for.
+ls_filters() {
+	filters=''
+	while [ $# -gt 0 ]; do
+		case $1 in
+		-t | --tag)
+			[ $# -ge 2 ] || die "pfw ls --tag TAG"
+			filters="$filters tag=$2"
+			shift
+			;;
+		-s | --severity)
+			[ $# -ge 2 ] || die "pfw ls --severity critical|high|medium|low"
+			filters="$filters severity=$2"
+			shift
+			;;
+		-*) die "pfw ls takes --tag TAG, --severity LEVEL, a remote's name, and words to search for" ;;
+		*) if remote "$1"; then filters="$filters remote=$1"; else filters="$filters q=$1"; fi ;;
+		esac
+		shift
+	done
+	printf '%s\n' "${filters# }"
 }
 
 # POLICY into $from and $path: its number in the list, NAME:PATH, or a bare
@@ -1055,6 +1083,12 @@ if [ "$verb" = doctor ]; then
 	exit $?
 fi
 
+if [ "$verb" = ls ]; then
+	chosen_filters=$(ls_filters "$@") || exit 1
+	list "$chosen_filters"
+	exit $?
+fi
+
 if [ "$verb" = knob ]; then
 	knob "$@"
 	exit 0
@@ -1120,10 +1154,6 @@ detach)
 pull)
 	[ $# -le 1 ] || usage
 	pull "${1:-}"
-	;;
-ls)
-	[ $# -le 1 ] || usage
-	list "${1:-}"
 	;;
 load | apply)
 	[ $# -le 1 ] || usage

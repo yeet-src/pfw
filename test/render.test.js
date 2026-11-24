@@ -66,9 +66,13 @@ test("the catalog numbers policies and marks the active one and the broken ones"
     ],
   }, plain).split("\n");
 
-  assertEquals(text[0], "  1 ✔ acme:edge/bots.pfc  2 rules");
-  assertEquals(text[1], "▸ 2 ✔ acme:edge/waf.pfc   1 rule   active");
-  assertEquals(text[2], "  3 ✘ acme:broken.pfc     line 3: nope");
+  assertEquals(text, [
+    "edge",
+    "  1 ✔ acme:edge/bots.pfc  2 rules",
+    "▸ 2 ✔ acme:edge/waf.pfc   1 rule   active",
+    "",
+    "  3 ✘ acme:broken.pfc     line 3: nope",
+  ]);
 });
 
 test("the catalog says when the active policy is from another revision", () => {
@@ -99,14 +103,19 @@ test("status attached to nothing says nothing is filtered", () => {
   assert(text.includes("held: no interface to enforce on"));
 });
 
-test("a filtered catalog keeps the numbers of the whole list", () => {
+test("a filtered catalog keeps the numbers of the whole list, and says how many", () => {
   const text = catalog({
     active: null,
-    first: 137,
-    entries: [{ name: "old:a.pfc@1234567", ok: true, rules: [], errors: [] }],
-  }, plain);
+    total: 200,
+    filtered: true,
+    entries: [{ number: 137, name: "old:a.pfc@1234567", ok: true, rules: [], errors: [] }],
+  }, plain).split("\n");
 
-  assertEquals(text, "  137 ✔ old:a.pfc  0 rules");
+  assertEquals(text, ["  137 ✔ old:a.pfc  0 rules", "", "1 of 200 policies"]);
+});
+
+test("a catalog nothing matches says so, and how many there were", () => {
+  assertEquals(catalog({ active: null, total: 10, filtered: true, entries: [] }, plain), "none of the 10 policies match");
 });
 
 test("metrics lay the verdicts, rules and decision times out in columns", async () => {
@@ -159,11 +168,13 @@ test("the catalog puts what a policy says about itself under its row", () => {
   }, plain).split("\n");
 
   assertEquals(text, [
+    "http",
     "  1 ✔ rules:http/log4shell.pfc  2 rules",
     "      Resets JNDI lookups.",
     "      CVE-2021-44228  critical  patches Apache Log4j 2.x  #http  #rce",
     "      knob  port     8080  set  The port to guard.",
     "      knob  enforce  1          1 to reset, 0 to count.",
+    "",
     "  2 ✔ rules:pass.pfc            1 rule",
   ]);
 });

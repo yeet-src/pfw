@@ -211,6 +211,7 @@ src/ctl/request.js        a request's framing: header, then counted sources
 src/ctl/stream.js         a portal peer read as a byte stream
 src/ctl/reply.js          a request run against the firewall, in the worker
 src/ctl/commands.js       the commands
+src/ctl/select.js         which policies a listing shows: remote, tag, severity, words
 src/ctl/render/           replies as text: palette, status, metrics, lists, bars
 
 src/ui/main.jsx           the metrics app: status bar, tabs, keys and mouse

@@ -12,7 +12,8 @@
  *   apply                       compile its one source and enforce it
  *   clear                       stop enforcing, and pass everything
  *   shadow, unshadow            dry run on and off: decide and count, block nothing
- *   check                       compile its sources and change nothing
+ *   check [<filter>...]         compile its sources, change nothing, and list
+ *                               the ones the filters choose (src/ctl/select.js)
  *   knobs                       a policy's knobs and what each holds
  *   knob-set <knob> <value>     set one, for that policy
  *   knob-unset <knob>           back to the policy's default
@@ -24,6 +25,7 @@
 import { listInterfaces, resolveInterfaces } from "#/fw/interfaces.js";
 import { parseMeta } from "#/fw/meta.js";
 import { Policy, PolicyError } from "#/fw/policy.js";
+import { isFiltering, parseFilters, select } from "#/ctl/select.js";
 
 const statusOf = async (firewall, notice) => {
   const data = await firewall.report();
@@ -146,13 +148,18 @@ export const commands = {
     return knobsOf(firewall, policy, `${name} is back to its default for ${policy.key}`);
   },
 
-  // A filtered list keeps the numbers of the whole one: `first` is where it starts.
+  /* Every source is compiled and numbered; the filters after the count then
+   * choose which are shown, so a number names the same policy however the
+   * list was narrowed.
+   */
   check: (firewall, { rest, sources }) => {
-    const entries = sources.map((source) => checked(firewall, source));
+    const filters = parseFilters(rest.split(" ").slice(1).filter(Boolean));
+    const all = sources.map((source, i) => ({ ...checked(firewall, source), number: i + 1 }));
+    const entries = select(all, filters);
     return {
       view: "catalog",
       ok: entries.every((e) => e.ok),
-      data: { entries, active: firewall.policy?.name ?? null, first: Number(rest.split(" ")[1] ?? 1) },
+      data: { entries, total: all.length, filtered: isFiltering(filters), active: firewall.policy?.name ?? null },
     };
   },
 };

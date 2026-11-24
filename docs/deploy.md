@@ -142,6 +142,10 @@ pfw ls
       knob  port  80  The port to guard.
 ```
 
+With a long list, narrow it: `pfw ls log4j`, `pfw ls --tag java`,
+`pfw ls --severity critical`, or a CVE number, `pfw ls CVE-2021-44228`. See
+[Finding one](policies.md#finding-one).
+
 How to choose:
 
 1. **Read the description line** under each. It says what the policy stops.

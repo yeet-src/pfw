@@ -219,7 +219,9 @@ How it works:
 - It runs ONE policy at a time. A policy is a .pfc file. `pfw apply`
   replaces whatever is running.
 - Policies come from git repositories ("remotes"): `pfw remote ls`,
-  `pfw pull`, `pfw ls`. `rules` (github.com/yeet-src/pfw-rules) is there by
+  `pfw pull`, `pfw ls`. `pfw ls` narrows by a word (`pfw ls log4j`, or a CVE
+  number), `--tag TAG` and `--severity LEVEL`. `rules`
+  (github.com/yeet-src/pfw-rules) is there by
   default. A policy is named as `remote:path` (stable) or by its number in
   `pfw ls` (a shortcut that shifts when the list changes: prefer the name).
 - A knob is a value a policy reads, such as a port: `pfw knob ls`,

@@ -52,25 +52,52 @@ function dials(p, knobs) {
   ]), "");
 }
 
-export function catalog({ entries, active, first = 1 }, p) {
-  if (entries.length === 0) return p.warn("no policies: pfw remote add NAME URL, then pfw pull");
+// A policy's group: the directory it is in, which is what it shields.
+function groupOf(name) {
+  const { source } = splitName(name);
+  const [remote, path = ""] = source.includes(":") ? source.split(/:(.*)/s) : ["", source];
+  const directory = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+  return { remote, directory };
+}
+
+/* The list in groups, a heading a directory. The numbers are the policies'
+ * places in the whole list, so they hold when the list is filtered.
+ */
+export function catalog({ entries, active, total = entries.length, filtered = false }, p) {
+  if (total === 0) return p.warn("no policies: pfw remote add NAME URL, then pfw pull");
+  if (entries.length === 0) return p.warn(`none of the ${total} policies match`);
 
   const activeSource = active ? splitName(active).source : null;
   const width = Math.max(...entries.map((e) => splitName(e.name).source.length));
-  const digits = String(first + entries.length - 1).length;
+  const digits = String(Math.max(...entries.map((e, i) => e.number ?? i + 1))).length;
   // Under the name: past the marker, the number and the tick.
   const indent = " ".repeat(digits + 5);
+  const remotes = new Set(entries.map((e) => groupOf(e.name).remote));
 
-  return entries.flatMap((entry, i) => {
+  const lines = [];
+  let heading = null;
+  entries.forEach((entry, i) => {
+    const { remote, directory } = groupOf(entry.name);
+    // The remote is named in a heading only when there is more than one.
+    const title = [remotes.size > 1 ? remote : "", directory].filter(Boolean).join(" · ");
+    if (title !== heading) {
+      if (lines.length > 0) lines.push("");
+      if (title) lines.push(p.label(title));
+      heading = title;
+    }
+
     const { source } = splitName(entry.name);
     const isActive = source === activeSource;
-    const row = [
+    lines.push([
       isActive ? p.ok("▸") : " ",
-      p.label(String(first + i).padStart(digits)),
+      p.label(String(entry.number ?? i + 1).padStart(digits)),
       entry.ok ? p.ok("✔") : p.bad("✘"),
       (isActive ? p.strong : p.name)(source.padEnd(width)),
       ` ${detail(p, entry, isActive ? active : null)}`,
-    ].join(" ");
-    return [row, ...about(p, entry).map((line) => `${indent}${line}`)];
-  }).join("\n");
+    ].join(" "));
+    lines.push(...about(p, entry).map((line) => `${indent}${line}`));
+  });
+
+  if (filtered) lines.push("", p.note(`${entries.length} of ${total} policies`));
+  return lines.join("\n");
 }

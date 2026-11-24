@@ -79,6 +79,12 @@ policy:
 | `tags` | words to find it by, comma-separated |
 | `knob NAME` | what one of its knobs is for |
 
+**Tags are how a policy is found**: `pfw ls --tag java` lists the ones
+carrying it. So use the words others already use, in lower case, and tag
+three things where they apply: the stack (`java`, `php`), the kind of
+weakness (`rce`, `path-traversal`, `deserialization`) and the product
+(`tomcat`, `nginx`, `confluence`). `pfw ls` shows what is in use.
+
 Only `description` is expected of every policy. The block ends at the first
 line that is not a comment. Ordinary comments, and keys pfw does not know,
 are left alone.
