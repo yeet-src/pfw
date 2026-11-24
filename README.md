@@ -32,7 +32,7 @@ you what it let through and what it stopped.
 
 ## Install
 
-You need a Linux machine (kernel 6.1 or newer) where you have `sudo`.
+You need a Linux machine, with kernel 6.1 or newer.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/yeet-src/pfw/master/install.sh | sh
