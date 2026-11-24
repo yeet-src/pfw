@@ -1323,6 +1323,13 @@ upgrade() {
 	esac
 }
 
+# Removes one path, with sudo only where it is not ours to remove: the
+# places pfw is installed to do not all belong to the same owner.
+remove() {
+	[ -e "$1" ] || [ -L "$1" ] || return 0
+	rm -rf "$1" 2>/dev/null || sudo rm -rf "$1"
+}
+
 uninstall() {
 	assume='' purge=''
 	while [ $# -gt 0 ]; do
@@ -1353,17 +1360,16 @@ uninstall() {
 		case $answer in y | Y | yes) ;; *) die "nothing was removed" ;; esac
 	fi
 
-	as_owner=''
-	[ -w "$prefix/bin" ] || as_owner=sudo
 	if [ -n "$YEET" ]; then
 		"$YEET" service stop "$PFW_SERVICE" >/dev/null 2>&1 || true
 		"$YEET" service remove "$PFW_SERVICE" >/dev/null 2>&1 || true
 	fi
-	$as_owner rm -f "$state" "$prefix/share/bash-completion/completions/pfw" "$prefix/share/zsh/site-functions/_pfw"
-	case $state in /var/lib/pfw/*) $as_owner rmdir /var/lib/pfw 2>/dev/null || true ;; esac
-	$as_owner rm -rf "$prefix/share/pfw"
+	# The command last, so a removal that fails can be run again.
 	[ -z "$purge" ] || rm -rf "$settings" "$PFW_CACHE"
-	$as_owner rm -f "$prefix/bin/pfw"
+	for each in "$state" "$prefix/share/bash-completion/completions/pfw" "$prefix/share/zsh/site-functions/_pfw" "$prefix/share/pfw" "$prefix/bin/pfw"; do
+		remove "$each" || die "could not remove $each: the rest of pfw is still there, and pfw uninstall can be run again"
+	done
+	case $state in /var/lib/pfw/*) rmdir /var/lib/pfw 2>/dev/null || sudo -n rmdir /var/lib/pfw 2>/dev/null || true ;; esac
 
 	say "$(ok '✔') $(strong 'pfw is removed')$([ -n "$purge" ] || printf '  %s' "$(note "your settings ($settings) and pulled policies ($PFW_CACHE) are kept: --purge removes them")")"
 	say "  $(note 'yeet itself is left installed')"
