@@ -1,0 +1,16 @@
+{
+  "name": "pfw",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "pfw — a yeet service that enforces pfw-C L7 firewall policy at XDP and exports its stats to Prometheus.",
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "scripts": {
+    "test": "yeet test test"
+  },
+  "dependencies": {
+    "pfw-core": "github:yeet-src/pfw-core"
+  }
+}

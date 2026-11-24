@@ -1,0 +1,8 @@
+# build artifacts: dist/ holds the esbuild bundle (index.js), the VM object
+# copied from pfw-core (bin/vm.bpf.o) and the service file
+/node_modules/
+/dist/
+/pkg/
+
+# the pfw-core clone `make` fetches
+/.deps/

@@ -1,0 +1,39 @@
+# The pfw service, three units.
+#
+#   keeper  (eager) holds the firewall shared worker, and the XDP hook,
+#           policy and counters inside it, alive; it also serves `ctl`.
+#   scrape  (lazy, per-connection) renders one exposition document per
+#           request, streamed as the response body via the console portal.
+#   gateway binds the address and mounts the two routes.
+#
+#   pfwctl up                           # apply this service, and start it
+#   curl http://127.0.0.1:9477/metrics  # the Prometheus scrape
+#   pfwctl status                       # the control portal, over `yeet dial`
+#
+# This file is copied into dist/ by `make`, so paths are relative to dist/.
+
+alias = "pfw"
+restart = "on-failure:5"
+enabled = true
+
+[units.keeper]
+isolate = "./index.js"
+args = ["--iface", "lo"]
+
+[units.scrape]
+isolate = "./scrape.js"
+lazy = true
+
+[units.gateway]
+web-server = "http://0.0.0.0:9477"
+
+[units.gateway.routes."/metrics"]
+target = "scrape"
+portal = "console"
+tenancy = "per-connection"
+description = "Prometheus text exposition of the firewall's counters"
+
+[units.gateway.routes."/ctl"]
+target = "keeper"
+portal = "ctl"
+description = "Control: status, interfaces, policy (see bin/pfwctl)"
