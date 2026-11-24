@@ -80,5 +80,8 @@ export function status(report, p, now = Date.now()) {
     packetsRow(p, report),
     rulesRow(p, report.rules),
     Number(report.counters.faults) > 0 && row(p, "faults", p.bad(plural(Number(report.counters.faults), "program fault"))),
+    // A segment larger than the firewall's window is read only as far as the
+    // window goes, so a policy saw part of it. Loopback sends such segments.
+    Number(report.counters.reasm_trunc ?? 0) > 0 && row(p, "segments", `${p.warn(`${count(report.counters.reasm_trunc)} only partly inspected`)}   ${p.note("too large to read whole: pfw doctor says what to set")}`),
   ].filter(Boolean).join("\n");
 }

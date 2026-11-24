@@ -8,7 +8,9 @@ import { Rates } from "#/fw/rates.js";
 import { Trial } from "#/fw/trial.js";
 
 // The counters of `PfwVm.stats()` a report carries.
-const COUNTERS = ["seen", "passed", "dropped", "rsts", "bans", "faults"];
+// `reasm_trunc`: segments larger than the window the firewall reads of one,
+// which it therefore only partly inspected.
+const COUNTERS = ["seen", "passed", "dropped", "rsts", "bans", "faults", "reasm_trunc"];
 
 export class Firewall {
   #vm;

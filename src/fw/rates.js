@@ -8,7 +8,10 @@ export const WINDOW = 60;
 const SPEEDS = {
   packets: (s) => s.seen,
   passed: (s) => s.passed,
-  blocked: (s) => (s.dropped ?? 0n) + (s.rsts ?? 0n) + (s.bans ?? 0n),
+  // Every blocked packet is in `dropped` or in `rsts`, once. `bans` counts
+  // ban verdicts, whose packets are in `dropped` already: adding it counted
+  // them twice.
+  blocked: (s) => (s.dropped ?? 0n) + (s.rsts ?? 0n),
   "would block": (s) => s.shadowed,
   scanned: (s) => s.scanned_bytes,
   flows: (s) => s.flows_created,

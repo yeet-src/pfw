@@ -40,6 +40,14 @@ test("status shows the policy, the verdicts and the busiest rules first", () => 
   assert(!text.includes("- 9"));
 });
 
+test("status says when segments were too large to inspect whole", () => {
+  const quiet = status(REPORT, plain, NOW);
+  assert(!quiet.includes("partly inspected"));
+
+  const text = status({ ...REPORT, counters: { ...REPORT.counters, reasm_trunc: 37n } }, plain, NOW);
+  assert(text.includes("  segments 37 only partly inspected   too large to read whole: pfw doctor says what to set"), text);
+});
+
 test("status without a policy says everything passes", () => {
   const text = status({ ...REPORT, policy: null, rules: {} }, plain, NOW);
 

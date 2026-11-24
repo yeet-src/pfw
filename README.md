@@ -28,8 +28,11 @@ you what it let through and what it stopped.
   after ten minutes unless you confirm it, so a rule that locks you out does
   not keep you out.
 - **Changes are live.** Applying a policy, or changing a value it reads, takes
-  effect on the next packet. Nothing restarts, and no connection is dropped
-  for it.
+  effect on the next packet. Nothing restarts. Connections stay up, with one
+  exception: a policy that reads a stream has to see a connection from its
+  start, so the first time one is applied, the connections already open on
+  the port it guards are reset. Other ports are not touched, and swapping
+  one such policy for another drops nothing.
 - **It tells you what it is doing**: a dashboard in your terminal, and
   metrics for Prometheus.
 

@@ -25,6 +25,17 @@ test("a speed is the last second, the window's mean, and its fastest second", ()
   assertEquals(rates.seconds, 3);
 });
 
+test("a ban is not counted on top of the packet it dropped", () => {
+  const sample = (second, seen, dropped, rsts, bans) =>
+    [{ seen: BigInt(seen), passed: BigInt(seen - dropped - rsts), dropped: BigInt(dropped), rsts: BigInt(rsts), bans: BigInt(bans), scanned_bytes: 0n, flows_created: 0n, shadowed: 0n, rules: {} }, second * 1000];
+  const rates = new Rates();
+  rates.push(...sample(0, 0, 0, 0, 0));
+  // In one second: 10 packets dropped, 4 of them by a ban verdict, and 6 reset.
+  rates.push(...sample(1, 100, 10, 6, 4));
+
+  assertEquals(rates.speeds().blocked.now, 16);
+});
+
 test("there is no speed until there are two samples", () => {
   const rates = new Rates();
   assertEquals(rates.speeds(), null);

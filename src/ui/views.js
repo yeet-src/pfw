@@ -39,7 +39,8 @@ export function status({ report }, now) {
 
 // The far end of the status bar: what has come through, and what was stopped.
 export function totals({ stats }) {
-  const blocked = num(stats.dropped) + num(stats.rsts) + num(stats.bans);
+  // `bans` is not added: a ban's packet is already in `dropped`.
+  const blocked = num(stats.dropped) + num(stats.rsts);
   return [
     ["note", `seen${NBSP}`], ["strong", count(num(stats.seen))], ["frame", DOT],
     ["note", `blocked${NBSP}`], [blocked > 0 ? "warn" : "strong", count(blocked)],

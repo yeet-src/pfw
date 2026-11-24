@@ -875,6 +875,20 @@ failed() {
 }
 section() { printf '%s\n' "$(label "$1")"; }
 
+# Does this interface hand over TCP segments larger than a network card's?
+# Its MTU says so, and so does segmentation offload, which lets one write
+# travel as one segment whatever the MTU is. An interface that cannot be
+# asked is taken to be fine.
+big_segments() {
+	mtu=$(cat "/sys/class/net/$1/mtu" 2>/dev/null) || return 1
+	[ "$mtu" -le 2048 ] 2>/dev/null || return 0
+	command -v ethtool >/dev/null 2>&1 || return 1
+	case $(ethtool -k "$1" 2>/dev/null) in
+	*'tcp-segmentation-offload: on'* | *'generic-segmentation-offload: on'*) [ "$1" = lo ] ;;
+	*) return 1 ;;
+	esac
+}
+
 # The first value of `--flag` in the service file's args, else `$3`.
 service_arg() {
 	found=$(sed -n 's/^args = \[\(.*\)\]$/\1/p' "$1" | tr -d '" ' | tr ',' '\n' | sed -n "/^--$2\$/{n;p;}" | head -n 1)
@@ -1011,6 +1025,16 @@ doctor() {
 		case $reply in
 		*'no interface'*) warned 'interfaces' 'attached to none: nothing is filtered' 'pfw attach lists them; pfw attach IFACE takes one' ;;
 		*) good 'interfaces' "$(printf '%s\n' "$reply" | sed -n '1s/.*   on //p' | sed 's/   shadow.*//')" ;;
+		esac
+		# The firewall reads the first couple of kilobytes of a TCP segment. A
+		# network card hands it segments of about 1500 bytes; loopback, with
+		# its 64 kB MTU and segmentation offload, hands it one segment a write,
+		# and what lies past the window in it goes uninspected.
+		case $reply in *'no interface'*) ;; *)
+			for iface in $(printf '%s\n' "$reply" | sed -n '1s/.*   on //p' | sed 's/   shadow.*//' | tr -d ',' ); do
+				big_segments "$iface" || continue
+				warned 'segments' "$iface delivers segments larger than the firewall reads of one" "what lies past the first 2 kB of a large segment is not inspected: ip link set $iface mtu 1500 && ethtool -K $iface tso off gso off"
+			done ;;
 		esac
 		case $reply in
 		*'none: passing everything'*) warned 'policy' 'none is enforcing: everything passes' 'pfw ls, then pfw apply POLICY' ;;

@@ -95,6 +95,13 @@ if [ "$ON" != lo ]; then
 	for each in $home; do pfw detach "$each"; done
 fi
 pfw doctor || fail 'pfw doctor found something to fix'
+# Loopback hands the firewall segments larger than it reads of one. doctor
+# has to say so wherever the firewall is on `lo`, and not where it is not.
+if [ "$ON" = lo ]; then
+	pfw doctor | grep -q 'lo delivers segments larger' || fail 'pfw doctor does not warn that lo delivers oversized segments'
+else
+	! pfw doctor | grep -q 'delivers segments larger' || fail "pfw doctor warns about oversized segments on $IFACE, which has an ordinary MTU"
+fi
 pfw status | grep -q "on $IFACE" || fail "the firewall is not on $IFACE"
 
 expect 200 "$PORT" '' 'no policy: a browser gets the page'
