@@ -9,7 +9,6 @@
 #   --package SRC      the package to install, a file or a URL, in place of a build
 #                      or the release (PFW_PACKAGE says the same)
 #   --no-login         do not require a yeet login
-#   --no-phone-home    when yeet is installed here, tell its installer not to report back
 #   --no-up            install only: leave the service for `pfw up`
 #   -h, --help         this
 #
