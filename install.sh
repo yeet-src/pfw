@@ -16,8 +16,9 @@
 #
 #   1. checks this is Linux, with what the steps below need
 #   2. finds yeet, and installs it when it is missing:  curl -fsSL https://yeet.cx | sh
-#   3. checks yeet is logged in, and runs `yeet login` when it is not
-#   4. checks the yeet daemon answers
+#   3. waits for the yeet daemon to answer
+#   4. checks yeet is logged in, and runs `yeet login` when it is not
+#      (YEET_API_KEY, when set, logs in with that key and no browser)
 #   5. gets pfw: built here in a checkout, else the package downloaded
 #   6. installs the command and the service's files under the prefix
 #   7. runs `pfw doctor`, then `pfw up`
@@ -133,21 +134,38 @@ if ! YEET=$(find_yeet); then
 fi
 step 'yeet' "$YEET $("$YEET" version 2>/dev/null | sed -n 's/^Version: //p')"
 
+# A yeet just installed takes a moment to bring its daemon up.
+tries=0
+until "$YEET" status >/dev/null 2>&1; do
+	tries=$((tries + 1))
+	[ "$tries" -lt 30 ] ||
+		die 'daemon' 'the yeet daemon does not answer' 'start it, and check that you may use its socket; `yeet status` should say Ok'
+	sleep 1
+done
+step 'daemon' 'yeetd answers'
+
+# yeet serves a login page in place of every route of a host that is not
+# logged in, so the firewall cannot be driven until this one is. A key in
+# YEET_API_KEY logs it in without a browser, for a machine nobody is sitting
+# at. Piped from curl, this script's own input is the pipe, so the login is
+# given the terminal instead.
 if [ -z "$want_login" ]; then
 	caution 'login' 'not checked (--no-login)'
 elif "$YEET" whoami --quiet >/dev/null 2>&1; then
 	step 'login' 'this host is logged in'
+elif [ -n "${YEET_API_KEY:-}" ]; then
+	"$YEET" login --key "$YEET_API_KEY" >/dev/null 2>&1 || die 'login' 'yeet refused the key in YEET_API_KEY' 'check the key, or run `yeet login`'
+	"$YEET" whoami --quiet >/dev/null 2>&1 || die 'login' 'still not logged in' 'run `yeet login`, then this again'
+	step 'login' 'this host is logged in, with the key in YEET_API_KEY'
 else
-	[ -t 0 ] || die 'login' 'this host is not logged in to yeet' 'run `yeet login`, then this again; or pass --no-login'
+	if [ -t 0 ]; then terminal=/dev/stdin
+	elif (: </dev/tty) 2>/dev/null; then terminal=/dev/tty
+	else die 'login' 'this host is not logged in to yeet' 'run `yeet login`, then this again; or set YEET_API_KEY'; fi
 	doing 'login' 'this host is not logged in: running yeet login'
-	"$YEET" login || die 'login' 'yeet login did not finish' 'run `yeet login`, then this again'
+	"$YEET" login <"$terminal" || die 'login' 'yeet login did not finish' 'run `yeet login`, then this again'
 	"$YEET" whoami --quiet >/dev/null 2>&1 || die 'login' 'still not logged in' 'run `yeet login`, then this again'
 	step 'login' 'this host is logged in'
 fi
-
-"$YEET" status >/dev/null 2>&1 ||
-	die 'daemon' 'the yeet daemon does not answer' 'start it, and check that you may use its socket; `yeet status` should say Ok'
-step 'daemon' 'yeetd answers'
 
 # ---- pfw --------------------------------------------------------------------
 

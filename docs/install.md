@@ -23,8 +23,8 @@ What it does, in order, stopping at the first thing it cannot put right:
 |---|---|
 | linux | checks this is Linux, with `tar` and `git` |
 | yeet | finds yeet; when it is missing, installs it with `curl -fsSL https://yeet.cx \| sh` |
+| daemon | waits for yeet's background service to answer |
 | login | checks this machine is logged in to yeet; when it is not, runs `yeet login` |
-| daemon | checks yeet's background service answers |
 | pfw | downloads the pfw package from the latest release |
 | install | puts `pfw` in `/usr/local/bin` and the service's files in `/usr/local/share/pfw`, with `sudo` |
 | doctor | runs `pfw doctor` and shows you the result |
@@ -50,6 +50,14 @@ curl -fsSL https://raw.githubusercontent.com/yeet-src/pfw/master/install.sh | sh
 | `--prefix DIR` | install under `DIR` instead of `/usr/local` (`DIR/bin/pfw`, `DIR/share/pfw`) |
 | `--package SRC` | install this package, a file or a URL, instead of the latest release |
 | `--no-login` | do not require a yeet login |
+
+To install on a machine nobody is sitting at, set `YEET_API_KEY`: the
+installer logs in with that key and opens no browser.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/yeet-src/pfw/master/install.sh | YEET_API_KEY=… sh
+```
+
 | `--no-up` | install only; start the firewall later with `pfw up` |
 
 ## Checking the install

@@ -5,10 +5,18 @@ name: ci
 #
 #   build     the service and the package, and the unit tests
 #   install   the package with install.sh, as a user would
-#   e2e       a real firewall on loopback: a crawler is cut off, a browser is not
+#   e2e       a real firewall: a crawler is cut off, a browser is not. On
+#             loopback, through a restart of the daemon as a reboot would
+#             cause; then across a pair of interfaces, from a client in a
+#             network namespace of its own
+#   ui        the metrics app, driven in a tmux pane
 #
-# then `same-everywhere` checks the two architectures built the same engine
-# object, which is what lets one package serve both.
+# on the newest runner image and an older one, so on two kernels. Then:
+#
+#   same-everywhere   every one of those built the same engine object, which
+#                     is what lets one package serve every architecture
+#   real-nic          the firewall attached to the runner's own network card
+#   stranger          a blank runner and nothing but the README's one line
 #
 # A push to master or release/* that passes all of that, the end-to-end test
 # included, is released: the
@@ -128,12 +136,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - arch: x86_64
+          - name: x86_64
             runner: ubuntu-latest
-          - arch: aarch64
+          - name: aarch64
             runner: ubuntu-24.04-arm
+          # An older image, for an older kernel.
+          - name: x86_64-older
+            runner: ubuntu-22.04
+          - name: aarch64-older
+            runner: ubuntu-22.04-arm
     runs-on: ${{ matrix.runner }}
-    name: build, install, e2e (${{ matrix.arch }})
+    name: build, install, e2e (${{ matrix.name }})
     outputs:
       e2e: ${{ steps.login.outputs.in }}
     steps:
@@ -142,6 +155,7 @@ jobs:
       - name: Install yeet
         run: |
           set -euo pipefail
+          uname -srm
           # --no-phone-home: the installer otherwise reports the runner's OS
           # version on exit.
           curl -fsSL https://yeet.cx | sh -s -- --no-phone-home
@@ -168,28 +182,26 @@ jobs:
       # logged in, so driving a firewall takes a login. A key in the
       # YEET_API_KEY secret gives the runner one. A pull request from a fork
       # has no secrets: it installs and stops there.
-      - name: Log this runner in to yeet
+      - name: Is there a key to log in with?
         id: login
         env:
           YEET_API_KEY: ${{ secrets.YEET_API_KEY }}
         run: |
-          set -euo pipefail
           if [ -z "$YEET_API_KEY" ]; then
-            echo "::warning::no YEET_API_KEY secret, so the firewall cannot be driven here: the end-to-end test is skipped, and nothing is released"
+            echo "::warning::no YEET_API_KEY secret, so the firewall cannot be driven here: the end-to-end tests are skipped, and nothing is released"
             echo "in=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          else
+            echo "in=true" >> "$GITHUB_OUTPUT"
           fi
-          yeet login --key "$YEET_API_KEY"
-          yeet whoami --quiet
-          echo "in=true" >> "$GITHUB_OUTPUT"
 
       - name: Install, as a user would
         env:
+          YEET_API_KEY: ${{ secrets.YEET_API_KEY }}
           LOGGED_IN: ${{ steps.login.outputs.in }}
         run: |
           set -euo pipefail
           # From outside the checkout, so install.sh installs the package and
-          # does not build.
+          # does not build. It logs in with the key itself.
           cp install.sh "$RUNNER_TEMP/install.sh"
           cd "$RUNNER_TEMP"
           if [ "$LOGGED_IN" = true ]; then
@@ -200,8 +212,24 @@ jobs:
           command -v pfw
           pfw --version
 
-      - name: End to end
+      - name: End to end, on loopback, through a restart of the daemon
         if: steps.login.outputs.in == 'true'
+        env:
+          E2E_DAEMON_RESTART: yes
+        run: make e2e
+
+      - name: The metrics app
+        if: steps.login.outputs.in == 'true'
+        run: |
+          set -euo pipefail
+          command -v tmux >/dev/null 2>&1 || sudo apt-get install -y -qq tmux >/dev/null
+          pfw up
+          sh test/ui.sh
+
+      - name: End to end, across an interface
+        if: steps.login.outputs.in == 'true'
+        env:
+          E2E_ON: veth
         run: make e2e
 
       - name: What the service says, if that failed
@@ -210,6 +238,7 @@ jobs:
           pfw doctor || true
           yeet service tree || true
           yeet ps || true
+          ip -d link || true
           sudo journalctl -u yeetd --no-pager -n 200 || true
 
       - name: Log this runner out
@@ -218,12 +247,12 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: object-${{ matrix.arch }}
+          name: object-${{ matrix.name }}
           path: vm.bpf.o.sha256
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
-        if: matrix.arch == 'x86_64'
+        if: matrix.name == 'x86_64'
         with:
           name: package
           path: pkg/pfw.tar.gz
@@ -239,11 +268,57 @@ jobs:
           pattern: object-*
       - run: |
           set -euo pipefail
-          cat object-*/vm.bpf.o.sha256
+          grep . object-*/vm.bpf.o.sha256
           [ "$(cat object-*/vm.bpf.o.sha256 | sort -u | wc -l)" -eq 1 ] || {
-            echo "::error::the engine object differs between architectures, so one package cannot serve both"
+            echo "::error::the engine object differs between builds, so one package cannot serve them all"
             exit 1
           }
+
+  # The firewall on the runner's own network card, the one its traffic to the
+  # world goes through, with a policy enforcing: the card must take the XDP
+  # program and the runner must still reach the network. It does not gate a
+  # release: a hosted runner's card is not ours to vouch for.
+  real-nic:
+    needs: build
+    if: needs.build.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    name: the runner's own network card
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: pkg
+      - name: Install yeet and pfw
+        env:
+          YEET_API_KEY: ${{ secrets.YEET_API_KEY }}
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/install.sh" -o install.sh
+          sh ./install.sh --package pkg/pfw.tar.gz
+      - name: Attach to the card the default route uses
+        run: |
+          set -euo pipefail
+          nic=$(ip -o route show default | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n 1)
+          echo "the default route is through $nic"
+          ip -d link show "$nic"
+          pfw attach "$nic"
+          pfw detach lo
+          pfw pull
+          pfw apply rules:http/crawlers.pfc
+          # The runner still reaches the world through it, and pfw is seeing that.
+          curl -fsS -m 20 -o /dev/null https://github.com
+          curl -fsS -m 20 -o /dev/null http://example.com
+          sleep 2
+          pfw status
+          pfw --json status | grep -q "\"seen\":[1-9]" || { echo "::error::pfw saw no packets on $nic"; exit 1; }
+          ip link show "$nic" | grep -q xdp
+          pfw metrics | head -20
+      - name: Let go of it
+        if: always()
+        run: |
+          pfw down || true
+          yeet logout || true
 
   release:
     needs: [version, build, same-everywhere]
@@ -275,3 +350,41 @@ jobs:
             --generate-notes \
             --target "${GITHUB_SHA}" \
             "$mk"
+
+  # A machine with nothing on it and the one line the README gives, which
+  # installs yeet, logs in, downloads the latest release and starts the
+  # firewall. Then the same end-to-end test, against what that installed. It
+  # runs after `release`, so on master it is the release just published.
+  stranger:
+    needs: [build, release]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.build.outputs.e2e == 'true' && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    name: a blank machine and the README's one line
+    steps:
+      - name: Nothing is installed yet
+        run: |
+          ! command -v yeet
+          ! command -v pfw
+      - name: The one line
+        env:
+          YEET_API_KEY: ${{ secrets.YEET_API_KEY }}
+        run: curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/install.sh" | sh
+      - name: What it installed
+        run: |
+          set -euo pipefail
+          yeet version
+          pfw --version
+          pfw doctor
+          pfw status
+      - uses: actions/checkout@v4
+      - name: End to end, against it
+        run: sh test/e2e.sh
+      - name: What the service says, if that failed
+        if: failure()
+        run: |
+          pfw doctor || true
+          yeet service tree || true
+          sudo journalctl -u yeetd --no-pager -n 100 || true
+      - name: Log this runner out
+        if: always()
+        run: yeet logout || true

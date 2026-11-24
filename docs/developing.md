@@ -90,28 +90,49 @@ percentiles, and the argument parsing. What touches the kernel is exercised
 by hand against a scratch service.
 
 `test/e2e.sh` (`make e2e`) is the end-to-end test: against an installed
-firewall on `lo` it starts a web server on loopback and asks for a page as a
-browser and as a crawler, with no policy, enforcing, in shadow mode, with a
+firewall it starts a web server and asks for a page as a browser and as a
+crawler, with no policy, enforcing, in shadow mode, with a
 knob changed, after a restart and cleared. It changes the firewall on the
 host and stops it at the end, so outside CI it runs only with `PFW_E2E=yes`.
+`E2E_ON=veth` runs it across a pair of virtual interfaces in place of
+loopback, and `E2E_DAEMON_RESTART=yes` adds a restart of the yeet daemon.
+
+`test/ui.sh` opens the metrics app in a tmux pane, sends it keys and a click,
+and reads back what the pane shows. It changes nothing.
 
 ## CI and releases
 
 `.github/workflows/ci.yml` runs on pull requests and on pushes to `master`
-and `release/*`, on x86_64 and on arm64:
+and `release/*`. On x86_64 and on arm64, each on the newest runner image and
+an older one, so on two kernels:
 
 1. build, unit tests, package;
 2. `install.sh` with that package, from outside the checkout;
-3. `make e2e` against the firewall that installed.
+3. `test/e2e.sh` on loopback, including a restart of the yeet daemon, which
+   has to bring the firewall back as it was, the way a reboot would;
+4. `test/ui.sh`: the metrics app, driven in a tmux pane with keys and a click;
+5. `test/e2e.sh` again across a pair of virtual interfaces, the client in a
+   network namespace of its own, so the traffic arrives from elsewhere.
 
-The end-to-end step needs the runner logged in to yeet, which serves a login
-page in place of every route of a host that is not. It logs in with the key
-in the repository's `YEET_API_KEY` secret (`yeet login --key`). Without the
-secret, as on a pull request from a fork, CI builds, tests, packages and
-installs, skips the end-to-end test with a warning, and releases nothing.
+Then, in jobs of their own:
 
-A last job checks that both architectures built a byte-identical
-`vm.bpf.o`, which is what lets one package serve both.
+- **one engine object**: every build above produced a byte-identical
+  `vm.bpf.o`, which is what lets one package serve every architecture;
+- **the runner's own network card**: the firewall attached to the card the
+  default route uses, with a policy enforcing, and the runner still reaching
+  the network. This one does not gate a release;
+- **a blank machine and the README's one line**: nothing installed, then
+  `curl … install.sh | sh`, which installs yeet, logs in, downloads the latest
+  release and starts the firewall, and the end-to-end test against that.
+
+The end-to-end steps need the runner logged in to yeet, which serves a login
+page in place of every route of a host that is not. `install.sh` logs in with
+the key in the repository's `YEET_API_KEY` secret. Without the secret, as on
+a pull request from a fork, CI builds, tests, packages and installs, skips
+the rest with a warning, and releases nothing.
+
+What CI cannot do: the browser login a person gets, a real reboot, and
+kernels older than the oldest hosted image.
 
 **A push to `master` that passes is released.** There is no tagging by hand:
 CI works out the next version, publishes the package as that GitHub release,
