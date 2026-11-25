@@ -1,17 +1,19 @@
 name: ci
 
-# On pull requests and on pushes to master and release/*, on x86_64 and on
-# arm64:
+# On pull requests and on pushes to master and release/*:
 #
 #   build     the service and the package, and the unit tests
 #   install   the package with install.sh, as a user would
-#   e2e       a real firewall: a crawler is cut off, a browser is not. On
-#             loopback, through a restart of the daemon as a reboot would
-#             cause; then across a pair of interfaces, from a client in a
-#             network namespace of its own
+#   e2e       a real firewall: a crawler is cut off, a browser is not. The
+#             short pass on loopback, where a segment is largest; then all
+#             of it once, across a pair of interfaces, from a client in a
+#             network namespace of its own, through a restart of the daemon
+#             as a reboot would cause
 #   ui        the metrics app, driven in a tmux pane
 #
-# on the newest runner image and an older one, so on two kernels. Then:
+# A pull request does that once, on x86_64. A push does it on x86_64 and on
+# arm64, each on the newest runner image and an older one, so on two
+# kernels, and then:
 #
 #   same-everywhere   every one of those built the same engine object, which
 #                     is what lets one package serve every architecture
@@ -135,16 +137,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: x86_64
-            runner: ubuntu-latest
-          - name: aarch64
-            runner: ubuntu-24.04-arm
-          # An older image, for an older kernel.
-          - name: x86_64-older
-            runner: ubuntu-22.04
-          - name: aarch64-older
-            runner: ubuntu-22.04-arm
+        # A pull request is checked on one machine; what may be released, on
+        # both architectures and, with the older images, on two kernels.
+        include: >-
+          ${{ fromJSON(github.event_name == 'pull_request'
+          && '[{"name":"x86_64","runner":"ubuntu-latest"}]'
+          || '[{"name":"x86_64","runner":"ubuntu-latest"},{"name":"aarch64","runner":"ubuntu-24.04-arm"},{"name":"x86_64-older","runner":"ubuntu-22.04"},{"name":"aarch64-older","runner":"ubuntu-22.04-arm"}]') }}
     runs-on: ${{ matrix.runner }}
     name: build, install, e2e (${{ matrix.name }})
     outputs:
@@ -226,10 +224,10 @@ jobs:
           test -f /usr/local/share/zsh/site-functions/_pfw
           bash -c 'source /usr/local/share/bash-completion/completions/pfw; COMP_LINE="pfw roll" COMP_POINT=8; _pfw; [ "${COMPREPLY[0]}" = rollback ]'
 
-      - name: End to end, on loopback, through a restart of the daemon
+      - name: End to end, the short pass, on loopback
         if: steps.login.outputs.in == 'true'
         env:
-          E2E_DAEMON_RESTART: yes
+          E2E_SHORT: yes
         run: make e2e
 
       - name: The metrics app
@@ -240,10 +238,11 @@ jobs:
           pfw up
           sh test/ui.sh
 
-      - name: End to end, across an interface
+      - name: End to end, across an interface, through a restart of the daemon
         if: steps.login.outputs.in == 'true'
         env:
           E2E_ON: veth
+          E2E_DAEMON_RESTART: yes
         run: make e2e
 
       - name: What the service says, if that failed
@@ -294,7 +293,7 @@ jobs:
   # release: a hosted runner's card is not ours to vouch for.
   real-nic:
     needs: build
-    if: needs.build.outputs.e2e == 'true'
+    if: github.event_name != 'pull_request' && needs.build.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     continue-on-error: true
     name: the runner's own network card
@@ -367,11 +366,12 @@ jobs:
 
   # A machine with nothing on it and the one line the README gives, which
   # installs yeet, logs in, downloads the latest release and starts the
-  # firewall. Then the same end-to-end test, against what that installed. It
-  # runs after `release`, so on master it is the release just published.
+  # firewall. Then the short pass of the end-to-end test, against what that
+  # installed. It runs after `release`, so on master it is the release just
+  # published. Not on a pull request: nothing is released from one.
   stranger:
     needs: [build, release]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.build.outputs.e2e == 'true' && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.build.result == 'success' && needs.build.outputs.e2e == 'true' && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
     runs-on: ubuntu-latest
     name: a blank machine and the README's one line
     steps:
@@ -407,7 +407,11 @@ jobs:
           pfw doctor
           pfw status
       - uses: actions/checkout@v4
-      - name: End to end, against it
+      # The whole of the test has run on every build above; here it is
+      # enough that what was installed filters.
+      - name: End to end, the short pass, against it
+        env:
+          E2E_SHORT: yes
         run: sh test/e2e.sh
       - name: Upgrade
         run: |

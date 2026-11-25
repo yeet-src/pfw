@@ -5,15 +5,15 @@ flowchart TD
     subgraph build["on x86_64 and arm64, each on two kernels"]
         direction TB
         b1["build, unit tests, package"] --> b2["install.sh with that package"]
-        b2 --> b3["end to end on loopback,<br/>through a restart of the daemon"]
+        b2 --> b3["end to end on loopback,<br/>the short pass"]
         b3 --> b4["the metrics app, in tmux"]
-        b4 --> b5["end to end across an interface"]
+        b4 --> b5["end to end across an interface,<br/>through a restart of the daemon"]
     end
 
     build --> same["one engine object:<br/>every build made the same vm.bpf.o"]
     build --> nic["the runner's own network card<br/>does not gate the release"]
     same --> release["release: publish pfw.tar.gz,<br/>marked Latest"]
-    release --> stranger["a blank machine and the README's one line,<br/>then end to end against what it installed"]
+    release --> stranger["a blank machine and the README's one line,<br/>then the short pass against what it installed"]
 
     classDef gate fill:#3b0764,stroke:#c084fc,color:#faf5ff
     classDef ship fill:#052e16,stroke:#4ade80,color:#f0fdf4
