@@ -10,7 +10,8 @@ flowchart TD
     login -->|"yes"| get{"run from a checkout?"}
     get -->|"yes"| build["build pfw"] --> place
     get -->|"no"| download["download the latest release"] --> place
-    place["put pfw in /usr/local/bin<br/>and the service in /usr/local/share/pfw"] --> doctor["pfw doctor"]
+    place["put pfw in /usr/local/bin<br/>and the service in /usr/local/share/pfw"] --> pull["pfw pull"]
+    pull --> doctor["pfw doctor"]
     doctor --> up["pfw up"]
     up --> done(["the firewall is up, on lo,<br/>blocking nothing"])
 

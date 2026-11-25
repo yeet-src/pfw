@@ -27,6 +27,7 @@ What it does, in order, stopping at the first thing it cannot put right:
 | login | checks this machine is logged in to yeet; when it is not, runs `yeet login` |
 | pfw | downloads the pfw package from the latest release |
 | install | puts `pfw` in `/usr/local/bin` and the service's files in `/usr/local/share/pfw`, with `sudo` |
+| pull | clones the public policies with `pfw pull`; when they cannot be reached it says so and goes on |
 | doctor | runs `pfw doctor` and shows you the result |
 | up | starts the firewall |
 
@@ -44,7 +45,8 @@ flowchart TD
     login -->|"yes"| get{"run from a checkout?"}
     get -->|"yes"| build["build pfw"] --> place
     get -->|"no"| download["download the latest release"] --> place
-    place["put pfw in /usr/local/bin<br/>and the service in /usr/local/share/pfw"] --> doctor["pfw doctor"]
+    place["put pfw in /usr/local/bin<br/>and the service in /usr/local/share/pfw"] --> pull["pfw pull"]
+    pull --> doctor["pfw doctor"]
     doctor --> up["pfw up"]
     up --> done(["the firewall is up, on lo,<br/>blocking nothing"])
 
@@ -59,7 +61,8 @@ Each step prints a line. One that fails says what to do, and the installer
 can be run again.
 
 When it finishes, the firewall is **running and blocking nothing**. It is
-attached to `lo`, the machine talking to itself, and has no policy.
+attached to `lo`, the machine talking to itself, and has no policy. The
+policies are on the machine, for `pfw ls` to list, and none is applied.
 [Getting started](getting-started.md) takes it from there, and `pfw setup`
 does its first steps for you.
 
@@ -78,6 +81,7 @@ curl -fsSL https://raw.githubusercontent.com/yeet-src/pfw/master/install.sh | sh
 | `--prefix DIR` | install under `DIR` instead of `/usr/local` (`DIR/bin/pfw`, `DIR/share/pfw`) |
 | `--package SRC` | install this package, a file or a URL, instead of the latest release |
 | `--no-login` | do not require a yeet login |
+| `--no-pull` | do not clone the policies; get them later with `pfw pull` |
 | `--no-up` | install only; start the firewall later with `pfw up` |
 
 To install on a machine nobody is sitting at, set `YEET_API_KEY`: the
