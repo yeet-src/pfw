@@ -36,12 +36,12 @@ A header line, ending in a newline:
 | `interfaces` | `[default=<names>] [xdp=<names>]` | the host's interfaces, the attached ones marked; the client says which the default route uses and which hold an XDP program, since the service cannot see either |
 | `attach` | `<name>[,<name>...]` | attach to these as well |
 | `detach` | `<name>[,<name>...]` | let go of these |
-| `apply` | `[confirm=<time> ]<bytes> <name>` then the source | compile a policy and enforce it |
-| `clear` | | stop enforcing |
+| `apply` | `[confirm=<time> ][at=<place> ]<bytes> <name>` then the source | compile a policy and enforce it: as the default, or at a place |
+| `clear` | `[at=<place>]` | stop enforcing; with a place, only what is there |
 | `shadow` | | the dry run, on |
-| `unshadow` | `[confirm=<time>]` | the dry run, off |
+| `enforce` | `[confirm=<time>]` | the dry run, off |
 | `confirm` | | keep what is on trial |
-| `rollback` | | undo the trial; with none, back to the policy before |
+| `rollback` | | undo the trial; with none, back to the policies before the last change |
 | `check` | `<count> [<filter>...]` then the sources | compile policies, change nothing, and list those the filters choose |
 | `knobs` | `<0\|1>` | a policy's knobs |
 | `knob-set` | `<0\|1> <knob> <value>` | set one |
@@ -66,15 +66,40 @@ exactly that many bytes:
   narrowed. A filter is `remote=<name>`, `tag=<tag>`, `severity=<level>` or
   `q=<word>`; `tag` and `q` given twice need both, `remote` and `severity`
   either.
-- The knob verbs take `1` when a source follows (the policy they are about)
-  and `0` when they mean the policy in place.
+- The knob verbs take `1` when a source follows (the policy they are about).
+  With `0`, `knobs` lists every policy in place, and `knob-set` and
+  `knob-unset` mean the one in place that has the knob, which must be one
+  policy's alone. A `knobs` reply carries `"policies"`, one entry for each
+  listed, with `"at"`, the places it is in; the first entry's fields are
+  also the reply's own.
 
 A policy's name is `<remote>:<path>@<rev>`, or a file path.
+
+### Places
+
+Several policies are in place at once, each in a place of its own.
+`at=<place>` says which; without it, the default. A place is one word:
+
+| place | is |
+|---|---|
+| `default` | every packet no route claims |
+| `first` | the chain every packet runs before its own policy; `apply` adds to its end, `clear` empties it |
+| a route | the packets it names, as parts with commas between |
+
+A route's parts, each at most once: `<proto>` or `<proto>/<port>` (`tcp`,
+`udp/53`, or a protocol's number), an address or CIDR (`10.1.0.0/16`,
+`2001:db8::/32`), and `if=<interface>`, by name or index, which the
+firewall must be attached to. `at=10.1.2.3,tcp/22,if=eth0` is one route.
+
+A status reply lists every policy in place as `"policies"`, each with
+`"at"` (`default`, `first`, `first.1`, or the route as status prints it)
+and `"place"` (`default`, `first` or `route`). `"policy"` is the default
+alone, or null. `"programs"` is what each has counted, by the same `"at"`.
 
 `confirm=<time>` puts the change on trial: it is undone after that long
 unless `confirm` comes first. `<time>` is a number and `s`, `m` or `h`,
 from `5s` to `24h`. A status reply then carries `"trial":{"until":<ms>}`;
-`"lapsed_at"` is when one last ran out, and `"previous"` names the policy
+`"lapsed_at"` is when one last ran out, and `"previous"` lists the policies
 `rollback` would return to.
 
 A source may be at most 1 MiB, a header 4096 bytes, and a `check` 1024

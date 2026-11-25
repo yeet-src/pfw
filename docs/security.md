@@ -83,16 +83,17 @@ on purpose, and Linux checks the engine that runs it.
 - **Encrypted contents.** Inside an HTTPS connection, pfw sees ports and
   addresses, not the request. Rules that look for text match plain traffic,
   or traffic after something has decrypted it.
-- **Anything past the first 2 KB of a large segment.** The engine reads a
-  window of 2048 bytes. On a network card a segment is at most about 1500
-  bytes, so it is read whole. **On loopback (`lo`) a segment can be 64 KB**,
-  and only its first 2 KB is inspected: a request padded past that point
-  goes through unread. This matters when something on the same machine
-  decrypts HTTPS and passes the request on over `lo`, which is the usual
-  place to put a content policy. Prefer the interface traffic arrives on.
-  `pfw status` shows an `unread` line when it has happened, `pfw doctor`
-  warns about a policy on `lo`, and
-  `pfw_reassembly_total{event="truncated"}` counts it.
+- **Anything past the first 4 KB of a large segment, for a policy that does
+  not follow the connection.** A policy that says `reassemble` reads every
+  byte of a stream, a large segment a piece at a time. One that does not
+  scans the first 4096 bytes of each packet. On a network card a segment is
+  at most about 1500 bytes, so it is read whole. **On loopback (`lo`) a
+  segment can be 64 KB**, and such a policy inspects only its first 4 KB: a
+  request padded past that point goes through unread. This matters when
+  something on the same machine decrypts HTTPS and passes the request on
+  over `lo`, which is the usual place to put a content policy. Use a policy
+  that reassembles there, or prefer the interface traffic arrives on.
+  `pfw doctor` warns about a policy on `lo` that does not reassemble.
 - **Traffic on interfaces it is not attached to.**
 - **Traffic leaving the machine.** pfw filters what arrives.
 

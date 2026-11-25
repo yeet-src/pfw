@@ -152,7 +152,7 @@ version. Traffic is not filtered for the moment it takes.
 
 In order:
 
-1. `pfw status`: does the first line say `shadow mode`? Then `pfw unshadow`.
+1. `pfw status`: does the first line say `shadow mode`? Then `pfw enforce`.
 2. Is pfw on the right interface? `pfw interfaces`.
 3. Is the traffic encrypted? pfw cannot read inside HTTPS. See
    [Security](security.md#what-pfw-does-not-see).
@@ -188,19 +188,31 @@ The dashboard opens only on a terminal. Through a pipe, in a script, or with
 No command waits more than 30 seconds for the firewall. If one gives up, the
 firewall has stopped answering: `pfw restart`.
 
-### `pfw status` shows an `unread` line
+### `pfw doctor` warns about a policy on `lo`
 
-Segments arrived larger than the 2 KB the engine reads, and the rest of each
-passed uninspected. It happens on `lo`, where a segment can be 64 KB. A
-policy that looks for text can be walked past this way. Attach pfw to the
+A policy that does not say `reassemble` reads the first 4 KB of each
+segment, and on `lo` a segment can be 64 KB: a request padded past 4 KB
+passes it unread. Use a policy that reassembles, or attach pfw to the
 interface traffic arrives on instead. See
 [What pfw does not see](security.md#what-pfw-does-not-see).
 
+### `port is a knob of … and …: name one`
+
+A knob command with no policy named means the policy in place that has the
+knob, and more than one does. Say which:
+`pfw knob set rules:http/crawlers.pfc port 8080`.
+
+### `No policy in place has a knob …`
+
+Several policies are in place and none has a knob of that name. `pfw knob
+ls` lists what each has.
+
 ### Applying a policy reset my open connections
 
-The first time a policy that reassembles streams is applied, connections
-already open on the port it guards are reset once. See
-[Applying](policies.md#applying).
+A policy that decodes a stream (HTTP/2, for one) cannot begin part-way
+through a connection, so the ones already open on the port it guards are
+reset once when it is first applied. Other policies follow an open
+connection from where they pick it up. See [Applying](policies.md#applying).
 
 ### The blocked count is higher than the number of requests
 

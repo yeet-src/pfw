@@ -130,7 +130,7 @@ Once it applies, see what it does before it does it:
 pfw shadow
 pfw apply -f ./mine.pfc
 pfw status        # "would block N", and which rules
-pfw unshadow
+pfw enforce
 ```
 
 In a repository, `pfw ls` compiles every policy and marks the ones that fail,

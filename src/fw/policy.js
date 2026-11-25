@@ -2,7 +2,7 @@
  * it needs no kernel, so it is where a bad policy is refused before the
  * running one is touched.
  */
-import { compile } from "pfw-core";
+import { OP, compile } from "pfw-core";
 
 import { parseMeta } from "#/fw/meta.js";
 import { keyOf } from "#/fw/name.js";
@@ -37,6 +37,9 @@ function compileOnce(source) {
 // How many sources have been compiled, for a test to see that one was not twice.
 export const compiledCount = () => compiledBySource.size;
 
+// The instructions that rewrite the reassembled stream.
+const REWRITES = new Set([OP.REDACT, OP.REPLACE]);
+
 export class Policy {
   constructor(name, source) {
     const compiled = compileOnce(source);
@@ -49,6 +52,9 @@ export class Policy {
     this.key = keyOf(name);
     this.rules = (compiled.rules ?? []).map((r) => r.name);
     this.meta = parseMeta(source);
+    // It reads or rewrites the stream of its connection, reassembled or
+    // decoded: there is one a connection, and it is its own policy's.
+    this.streams = Boolean(compiled.program.reasm || compiled.program.decode) || compiled.program.ops.some((op) => REWRITES.has(op.code));
     this.knobs = [
       ...(compiled.knobs ?? []).map((knob, slot) => ({ name: knob, kind: "number", default: BigInt(compiled.knobDefaults?.[slot] ?? 0) })),
       ...(compiled.knobStrs ?? []).map((knob) => ({ name: knob, kind: "string", default: "" })),
@@ -57,6 +63,6 @@ export class Policy {
 
   // What status and metrics say about it.
   describe() {
-    return { name: this.name, bytes: this.bytes, rules: this.rules, meta: this.meta };
+    return { name: this.name, bytes: this.bytes, rules: this.rules, meta: this.meta, streams: this.streams };
   }
 }

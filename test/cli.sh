@@ -105,8 +105,9 @@ refuses 'a time may come before the policy or after it' 'not reachable' pfw appl
 
 # ---- options that are refused -----------------------------------------------
 
-refuses '--confirm is for apply and unshadow' '--confirm goes with apply and unshadow' pfw status --confirm
-refuses '--confirm is not for clear' '--confirm goes with apply and unshadow' pfw clear --confirm 10m
+refuses '--confirm is for apply and enforce' '--confirm goes with apply and enforce' pfw status --confirm
+refuses 'unshadow, the old name of enforce, is still taken' 'not reachable' pfw unshadow --confirm 5m
+refuses '--confirm is not for clear' '--confirm goes with apply and enforce' pfw clear --confirm 10m
 refuses 'confirm takes no argument' 'pfw confirm' pfw confirm now
 refuses 'setup has no --json' 'no --json' pfw --json setup
 refuses 'setup refuses an option it does not know' 'pfw setup takes' pfw setup --nope
@@ -125,8 +126,8 @@ has 'global options are stepped over' " $(offers --json '') " ' status '
 has 'apply offers the policies and its options' "$(offers apply '')" 'local:baseline/pass.pfc local:http/web.pfc --confirm -f'
 has 'apply --confirm offers times, then the policies' "$(offers apply --confirm '')" '5m 10m 30m 1h local:baseline/pass.pfc'
 has 'apply -f offers nothing: the shell completes a file' "[$(offers apply -f '')]" '[]'
-has 'unshadow offers --confirm' "$(offers unshadow '')" '--confirm'
-has 'unshadow --confirm offers times' "$(offers unshadow --confirm '')" '5m 10m 30m 1h'
+has 'enforce offers --confirm' "$(offers enforce '')" '--confirm'
+has 'enforce --confirm offers times' "$(offers enforce --confirm '')" '5m 10m 30m 1h'
 has 'pull offers the remotes' "$(offers pull '')" 'local'
 has 'ls offers the remotes and its filters' "$(offers ls '')" 'local --tag --severity --check'
 has 'ls --severity offers the levels' "$(offers ls --severity '')" 'critical high medium low'
@@ -157,7 +158,7 @@ if command -v bash >/dev/null 2>&1; then
 		' bash "$here/completions/pfw.bash" "$1" | flat
 	}
 	has 'bash: a command is completed' "$(completes 'pfw roll')" 'rollback'
-	has 'bash: only what matches is offered' "$(completes 'pfw un')" 'uninstall unshadow'
+	has 'bash: only what matches is offered' "$(completes 'pfw en')" 'enforce'
 	has 'bash: after a space, the next word' "$(completes 'pfw knob ')" 'ls set unset'
 	has 'bash: a policy is completed' "$(completes 'pfw apply lo')" 'local:baseline/pass.pfc local:http/web.pfc'
 	has 'bash: past its colon, only what follows the colon' "$(completes 'pfw apply local:ht')" 'http/web.pfc'

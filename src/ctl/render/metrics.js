@@ -5,10 +5,8 @@
 import { bytes, count, nanos } from "#/ctl/render/format.js";
 import { bar, percent, sparkline } from "#/ctl/render/bars.js";
 import { cell, table } from "#/ctl/render/table.js";
+import { ruleCounts, unmatched } from "#/fw/counted.js";
 import { quantile } from "#/fw/rates.js";
-
-// The slot pfw-core counts packets that ended on no rule under.
-const NO_RULE = "-";
 
 const VERDICTS = [["pass", "passed"], ["drop", "dropped"], ["rst", "rsts"]];
 // Shown in their own sections, or as the unit of another counter.
@@ -55,30 +53,27 @@ function packets(stats, p) {
  * it took to decide those is said under the list.
  */
 function rules(stats, p, ruleSpeeds = {}) {
-  const rows = Object.entries(stats.rules ?? {})
-    .filter(([name]) => name !== NO_RULE)
-    .map(([name, hits]) => ({ name, hits: num(hits), timing: stats.timing?.[name] }))
-    .sort((a, b) => b.hits - a.hits);
-  const clean = stats.timing?.[NO_RULE];
-  if (rows.length === 0 && !(num(clean?.runs) > 0)) return [];
+  const rows = ruleCounts(stats);
+  const clean = unmatched(stats);
+  if (rows.length === 0 && !(clean.runs > 0)) return [];
 
   const most = Math.max(1, ...rows.map((r) => r.hits));
   // The speed column is there only while a rule is being hit.
-  const anyMoving = rows.some((r) => ruleSpeeds[r.name] > 0);
+  const anyMoving = rows.some((r) => ruleSpeeds[r.id] > 0);
   return [
     `${p.label("rules")}  ${p.note(anyMoving ? "hits, mean decision time, hits a second" : "hits, mean decision time")}`,
-    ...(rows.length > 0 ? table(rows.map(({ name, hits, timing }) => {
+    ...(rows.length > 0 ? table(rows.map(({ id, name, hits, timing }) => {
       const runs = num(timing?.runs);
       return [
         cell(p.name, name),
         cell(p.value, count(hits)),
         cell(p.note, runs > 0 ? nanos(num(timing.ns) / runs) : ""),
-        ...(anyMoving ? [cell(p.note, ruleSpeeds[name] > 0 ? `${count(Math.round(ruleSpeeds[name]))}/s` : "")] : []),
+        ...(anyMoving ? [cell(p.note, ruleSpeeds[id] > 0 ? `${count(Math.round(ruleSpeeds[id]))}/s` : "")] : []),
         cell(p.value, bar(hits / most)),
       ];
     })) : []),
-    ...(num(clean?.runs) > 0
-      ? [`  ${p.note(`packets that matched no rule took ${nanos(num(clean.ns) / num(clean.runs))} each to pass`)}`]
+    ...(clean.runs > 0
+      ? [`  ${p.note(`packets that matched no rule took ${nanos(clean.ns / clean.runs)} each to pass`)}`]
       : []),
   ];
 }

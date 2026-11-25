@@ -168,7 +168,7 @@ test("the policy before survives a restart", async () => {
   assertEquals(next.policy.key, "rules:a.pfc");
 });
 
-test("the commands: apply and unshadow on trial, confirm, rollback", async () => {
+test("the commands: apply and enforce on trial, confirm, rollback", async () => {
   const fw = await firewall();
   await fw.setShadow(true);
 
@@ -180,17 +180,24 @@ test("the commands: apply and unshadow on trial, confirm, rollback", async () =>
   assertEquals(kept.data.trial, null);
   await refuses(() => commands.confirm(fw, { rest: "" }), "Nothing is on trial");
 
-  await refuses(() => commands.unshadow(fw, { rest: "confirm=soon" }), "like 10m");
+  await refuses(() => commands.enforce(fw, { rest: "confirm=soon" }), "like 10m");
   assertEquals(fw.shadow, true);
 
-  await commands.unshadow(fw, { rest: "confirm=5s" });
+  await commands.enforce(fw, { rest: "confirm=5s" });
   assertEquals(fw.shadow, false);
   const back = await commands.rollback(fw, { rest: "" });
   assert(back.notice.includes("rolled back the trial"), back.notice);
   assertEquals(fw.shadow, true);
 
-  const plain = await commands.unshadow(fw, { rest: "" });
+  const plain = await commands.enforce(fw, { rest: "" });
   assertEquals(plain.data.trial, null);
+});
+
+test("unshadow, the old name of enforce, still answers", async () => {
+  const fw = await firewall();
+  await fw.setShadow(true);
+  await commands.unshadow(fw, { rest: "" });
+  assertEquals(fw.shadow, false);
 });
 
 test("a bad policy on trial changes nothing and starts no trial", async () => {

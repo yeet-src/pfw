@@ -199,7 +199,7 @@ That is why saving works only from the machine the firewall runs on.
 
 ### Where a trial's timer runs
 
-`pfw unshadow --confirm 10m` returns at once. The countdown is a timer in
+`pfw enforce --confirm 10m` returns at once. The countdown is a timer in
 the firewall worker, which holds what the firewall was doing before the
 change. At the deadline it puts that back; `pfw confirm` cancels it. Nothing
 on your side has to stay open, which is the point: the person who might be

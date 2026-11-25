@@ -3,7 +3,8 @@
  * `yeet dial` forwards a pipe in whatever chunks it read.
  *
  *   [@<format> ]<verb> [<rest>]
- *   apply [confirm=<time> ]<bytes> <name>\n<bytes of pfw-C>
+ *   apply [confirm=<time> ][at=<place> ]<bytes> <name>\n<bytes of pfw-C>
+ *   clear [at=<place>]
  *   check <count> [<filter>...]\n  then <count> of  <bytes> <name>\n<bytes of pfw-C>
  *   knobs <0|1>, knob-set <0|1> <knob> <value>, knob-unset <0|1> <knob>
  *                    then, for 1, the one policy they are about
@@ -20,6 +21,10 @@ const MAX_HEADER_BYTES = 4096;
 // `confirm=<time> ` ahead of a command's arguments puts the change on trial.
 const CONFIRM = /^confirm=(\S+)(?: |$)/;
 export const confirmOf = (rest) => rest.match(CONFIRM)?.[1] ?? null;
+
+// `at=<place> `, after it, says where: the spec of src/fw/place.js.
+const AT = /^at=(\S+)(?: |$)/;
+export const atOf = (rest) => rest.replace(CONFIRM, "").match(AT)?.[1] ?? null;
 
 export function parseHeader(line) {
   const [, format = "json", verb = "", rest = ""] = line.trim().match(/^(?:@(\S+) )?(\S*)(?: (.*))?$/s) ?? [];
@@ -44,7 +49,7 @@ async function optionalSource(rest, stream) {
 }
 
 const SOURCES = {
-  apply: async (rest, stream) => [await readSource(rest.replace(CONFIRM, ""), stream)],
+  apply: async (rest, stream) => [await readSource(rest.replace(CONFIRM, "").replace(AT, ""), stream)],
 
   // `<count> [<filter>...]`: the count of sources, then what to show of them.
   async check(rest, stream) {

@@ -5,7 +5,9 @@
  *
  * pfw-core itself carries a value from program to program by name, so
  * every apply is given a value for every knob the policy declares: what
- * was set for it, else its default.
+ * was set for it, else its default. And it keeps one value a name for
+ * every program installed, so a policy in place is given names of its own
+ * (src/fw/scopes.js).
  */
 const U64_MAX = (1n << 64n) - 1n;
 const STRING_CAP = 64;

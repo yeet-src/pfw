@@ -28,10 +28,12 @@ you what it let through and what it stopped.
   after ten minutes unless you confirm it, so a rule that locks you out does
   not keep you out.
 - **Changes are live.** Applying a policy, or changing a value it reads, takes
-  effect on the next packet, and nothing restarts. The first time a policy
-  that follows whole connections is applied, connections already open on the
-  port it guards are reset once; after that, swapping policies and changing
-  values drops nothing.
+  effect on the next packet, and nothing restarts. Connections already open
+  are followed from where the policy picks them up; only a policy that
+  decodes a stream (HTTP/2, say) resets the ones open on its port, once.
+- **Several policies run at once.** One by default, others for a port, an
+  address or an interface of their own, and a chain that every packet runs
+  first.
 - **It tells you what it is doing**: a dashboard in your terminal, and
   metrics for Prometheus.
 
@@ -53,7 +55,7 @@ More in [Installing](docs/install.md).
 ```sh
 pfw setup                    # asks which interface and which policy; blocks nothing
 pfw status                   # "would block N" is what it would have stopped
-pfw unshadow --confirm 10m   # make it real, on trial for ten minutes
+pfw enforce --confirm 10m   # make it real, on trial for ten minutes
 pfw confirm                  # keep it, once your site and your login still work
 pfw metrics                  # the dashboard
 ```

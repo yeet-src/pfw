@@ -41,7 +41,7 @@ Names you may see:
 
 | name | what it usually is |
 |---|---|
-| `lo` | loopback: the machine talking to itself. A content policy here can be walked past with a large request: see [What pfw does not see](security.md#what-pfw-does-not-see) |
+| `lo` | loopback: the machine talking to itself. A content policy here that does not reassemble can be walked past with a large request: see [What pfw does not see](security.md#what-pfw-does-not-see) |
 | `eth0`, `ens5`, `enp1s0` | a wired or virtual network card |
 | `wlan0`, `wlp2s0` | wifi |
 | `docker0`, `br-…`, `veth…` | bridges and links made for containers |
@@ -98,7 +98,9 @@ pfw stays running and keeps its policy, and filters nothing. Attach an
 interface and the policy is enforced again. This is a way to step aside
 without losing your setup; `pfw down` stops pfw altogether.
 
-## One policy for all of them
+## A policy for one of them
 
-pfw runs one policy, on every interface it is attached to. Different policies
-on different interfaces is not something it does today.
+A policy is for every interface pfw is attached to, unless you say
+otherwise: `pfw apply POLICY --iface eth1` gives the packets arriving on
+`eth1` a policy of their own. See
+[Several policies at once](policies.md#several-policies-at-once).

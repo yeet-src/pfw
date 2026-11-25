@@ -50,12 +50,12 @@ that looks for text in a request will never match.
 | HTTPS ends at a load balancer or CDN, which forwards plain HTTP here | yes | use the port the forwarded traffic arrives on |
 | HTTPS ends on this machine (nginx, Caddy, etc. with a certificate here) | no, not on the public port | pfw can still filter by port and address; for content rules, run it where the traffic is plain. If that is `lo` on this machine, read the limit below first |
 
-**A limit on `lo`.** pfw reads the first 2 KB of each segment. On a network
-card that is the whole segment. On loopback a segment can be 64 KB, so a
-request padded past 2 KB is not read there, and a content policy can be
-walked past. If your plain traffic exists only between a TLS terminator and
-an app on the same machine, pfw on `lo` is a partial guard, not a complete
-one. `pfw status` shows an `unread` line when it has happened.
+**A limit on `lo`.** A policy that follows a connection (it says
+`reassemble`, as most of the public ones do) reads every byte, however large
+the segment. One that does not reads the first 4 KB of each segment. On a
+network card that is the whole segment. On loopback a segment can be 64 KB,
+so a request padded past 4 KB is not read there by such a policy, and it can
+be walked past. `pfw doctor` says so when a policy of that kind is on `lo`.
 
 **Check:** you have an interface name, a port, and you know the traffic on
 that port is not encrypted.
@@ -178,7 +178,9 @@ How to choose:
    cat ~/.cache/pfw/remotes/rules/http/crawlers.pfc
    ```
 
-You can run **one policy at a time.** Pick the one that matters most.
+Start with **one policy**: pick the one that matters most. Others can be
+added beside it later, each for a port or an address of its own: see
+[Several policies at once](policies.md#several-policies-at-once).
 
 **Check:** you have chosen a policy and noted its name, the part like
 `rules:http/crawlers.pfc`. The number in front is a shortcut for it, and
@@ -233,7 +235,7 @@ pfw status
 ```
 
 ```
-  packets  210k seen   pass 210k   drop 0   rst 0   cut off 0   would block 1.4k
+  packets  210k seen   pass 210k   drop 0   rst 0   ban 0   would block 1.4k
   rules    crawler 1.4k
 ```
 
@@ -257,7 +259,7 @@ policy (step 6), and wait again. To back out completely: `pfw clear`.
 Make the policy real for ten minutes:
 
 ```sh
-pfw unshadow --confirm 10m
+pfw enforce --confirm 10m
 ```
 
 It is blocking from the next packet. Unless you confirm it, the firewall
@@ -358,7 +360,7 @@ To move to the newer version, rehearse it first, the same as before:
 pfw shadow
 pfw apply rules:http/crawlers.pfc
 # watch pfw status for a while
-pfw unshadow --confirm 10m
+pfw enforce --confirm 10m
 pfw confirm
 ```
 
@@ -394,7 +396,7 @@ pfw knob set rules:http/crawlers.pfc port 80    # your policy, your port (if it 
 pfw shadow && pfw apply rules:http/crawlers.pfc # rehearse
 pfw status                            # after a while: read "would block"
 
-pfw unshadow --confirm 10m            # enforce, on trial
+pfw enforce --confirm 10m            # enforce, on trial
 # check the site and your login, then:
 pfw confirm                           # keep it
 ```
