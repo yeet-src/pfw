@@ -254,9 +254,11 @@ jobs:
           ip -d link || true
           sudo journalctl -u yeetd --no-pager -n 200 || true
 
+      # --delete-host, here and wherever CI logs out: a plain logout leaves the
+      # runner registered as a host of the account, one more for every run.
       - name: Log this runner out
         if: always() && steps.login.outputs.in == 'true'
-        run: yeet logout || true
+        run: yeet logout --delete-host || true
 
       - uses: actions/upload-artifact@v4
         with:
@@ -331,7 +333,7 @@ jobs:
         if: always()
         run: |
           pfw down || true
-          yeet logout || true
+          yeet logout --delete-host || true
 
   release:
     needs: [version, build, same-everywhere]
@@ -452,4 +454,4 @@ jobs:
           sudo journalctl -u yeetd --no-pager -n 100 || true
       - name: Log this runner out
         if: always()
-        run: yeet logout || true
+        run: yeet logout --delete-host || true
