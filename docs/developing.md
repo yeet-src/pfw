@@ -298,6 +298,8 @@ src/ui/feed.js            its line to the worker, asked once a second
 completions/              bash and zsh completion: thin, `pfw __complete` does the work
 contrib/                  a Prometheus scrape job and alerts, a Grafana dashboard
 assets/                   the diagrams, as Mermaid
+assets/pfw-tui.gif        the dashboard, as the README shows it
+assets/social-preview.png the picture a link to the repository unfurls to
 
 test/*.test.js            `yeet test` cases
 test/cli.sh               the command without a firewall

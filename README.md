@@ -1,5 +1,13 @@
 # pfw
 
+[![ci](https://github.com/yeet-src/pfw/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/yeet-src/pfw/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/yeet-src/pfw)](https://github.com/yeet-src/pfw/releases/latest)
+[![last commit](https://img.shields.io/github/last-commit/yeet-src/pfw)](https://github.com/yeet-src/pfw/commits/master)
+[![commit activity](https://img.shields.io/github/commit-activity/m/yeet-src/pfw)](https://github.com/yeet-src/pfw/pulse)
+[![Discord](https://img.shields.io/badge/Discord-join%20the%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/bBRF9d2Gw2)
+
+![The pfw dashboard: traffic passed and blocked, the busiest rules, and how long each decision took](assets/pfw-tui.gif)
+
 A firewall for Linux that reads what is *inside* network traffic, not just
 where it comes from, and stops what you tell it to.
 
@@ -7,17 +15,6 @@ You give it a **policy**: a short file of rules such as "reset any web request
 whose user-agent is an AI crawler". pfw runs that policy on every packet as it
 arrives at the network card, before the rest of the system sees it, and shows
 you what it let through and what it stopped.
-
-```
- pfw ● up 3d 4h · eth0 · rules:http/crawlers.pfc @ b58a001                 seen 1.23M · blocked 4.4k
- 1 overview    2 rules    3 timing    4 engine
-─━━━━━━━━━━──────────────────────────────────────────────────────────────────────────────────────────
-╭─ traffic ────────────────────────────────────────────────────── 67/s · peak 81/s · mean 47/s ─╮
-│         ▅▅▅▅        ███████        ████           ▆▆▆▆   pass ████████████▉░░  1.19M  96.7%   │
-│         ████▂▂▂▂▂▂▂▂███████        ████▇▇▇▇       ████   drop ░░░░░░░░░░░░░░░    312   0.0%   │
-│ ▃▃▃▃▃▃▃▃███████████████████▂▂▂▂▂▂▂▂████████▇▇▇▇▇▇▇████   rst  ▍░░░░░░░░░░░░░░   4.1k   0.3%   │
-╰───────────────────────────────────────────────────────────────────────────────────────────────╯
-```
 
 - **Policies come from git.** Point pfw at a repository of them, pull, pick
   one, apply it. A [public set](https://github.com/yeet-src/pfw-rules) is
