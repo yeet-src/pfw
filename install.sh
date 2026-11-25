@@ -9,6 +9,7 @@
 #   --package SRC      the package to install, a file or a URL, in place of a build
 #                      or the release (PFW_PACKAGE says the same)
 #   --no-login         do not require a yeet login
+#   --no-pull          do not clone the policy remotes: leave them for `pfw pull`
 #   --no-up            install only: leave the service for `pfw up`
 #   -h, --help         this
 #
@@ -21,7 +22,9 @@
 #      (YEET_API_KEY, when set, logs in with that key and no browser)
 #   5. gets pfw: built here in a checkout, else the package downloaded
 #   6. installs the command and the service's files under the prefix
-#   7. runs `pfw doctor`, then `pfw up`
+#   7. clones the policy remotes with `pfw pull`, and goes on without them
+#      when they cannot be reached
+#   8. runs `pfw doctor`, then `pfw up`
 #
 # It can be run again: each step is skipped when it is already done.
 set -eu
@@ -31,7 +34,7 @@ RELEASE=https://github.com/yeet-src/pfw/releases/latest/download/pfw.tar.gz
 
 prefix=/usr/local
 package=${PFW_PACKAGE:-}
-want_login=1 want_up=1 yeet_flags=''
+want_login=1 want_pull=1 want_up=1 yeet_flags=''
 
 usage() {
 	sed -n '2,/^set -eu$/p' "$0" | sed -e '$d' -e 's/^# \{0,1\}//'
@@ -51,6 +54,7 @@ while [ $# -gt 0 ]; do
 		;;
 	--no-login) want_login='' ;;
 	--no-phone-home) yeet_flags='--no-phone-home' ;;
+	--no-pull) want_pull='' ;;
 	--no-up) want_up='' ;;
 	-h | --help)
 		usage
@@ -241,9 +245,24 @@ case ":$PATH:" in
 *) caution 'PATH' "$prefix/bin is not on it: add it, or call $prefix/bin/pfw" ;;
 esac
 
+pfw=$prefix/bin/pfw
+
+# ---- policies ---------------------------------------------------------------
+
+# The remotes are cloned now, so `pfw ls` has policies to list as soon as
+# this ends. An install is whole without them: a host that cannot reach a
+# remote is told so, and `pfw pull` is there for when it can.
+if [ -z "$want_pull" ]; then
+	caution 'pull' 'not pulled (--no-pull)'
+elif pulled=$("$pfw" --no-color pull 2>&1); then
+	printf '%s\n' "$pulled" | sed -n 's/^✔ //p' | tr -s ' ' | while IFS= read -r line; do step 'pull' "$line"; done
+else
+	caution 'pull' "$(printf '%s\n' "$pulled" | sed -n -e 's/^[✘▲] //' -e '$p')"
+	printf '%*s%s\n' 14 '' "$(note 'the install goes on without the policies: `pfw pull` tries again')"
+fi
+
 # ---- up ---------------------------------------------------------------------
 
-pfw=$prefix/bin/pfw
 printf '\n'
 # Before the service exists: doctor is told so, and does not call its
 # absence a fault.

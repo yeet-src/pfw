@@ -217,6 +217,8 @@ jobs:
           # installer checks the host, and that is a step to come, not a fault.
           if grep -q 'to fix' install.log; then echo "::error::a clean install said something was to fix"; exit 1; fi
           grep -q 'not created yet' install.log
+          # The policies came with it, and are there to list.
+          grep -Eq '^✔ pull +rules ' install.log
           command -v pfw
           pfw --version
           # Tab completion came with it, and completes.

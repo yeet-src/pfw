@@ -86,7 +86,8 @@ pfw ls
 
 `pull` downloads the policies from the public
 [pfw-rules](https://github.com/yeet-src/pfw-rules) repository; `ls` lists
-them, in groups. There are more than these two, and `pfw ls crawlers` or
+them, in groups. The installer pulled them once already, so here `pull`
+brings what is new since. There are more than these two, and `pfw ls crawlers` or
 `pfw ls --tag java` narrows the list. Reading one entry:
 
 - **`2`** is its number, a shortcut for its name. Numbers follow the list, so
