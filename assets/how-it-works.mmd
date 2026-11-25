@@ -1,0 +1,31 @@
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+flowchart TB
+    subgraph author["you, or an agent"]
+        direction LR
+        write["<b>1</b> write a policy (.pfc)<br/>and cases: what it stops,<br/>what it lets through"]
+        pr["<b>2</b> open a pull request<br/>CI runs the cases,<br/>then you merge"]
+        write --> pr
+    end
+
+    remote("<b>git remote</b><br/>pfw-rules, or your own<br/>policies, commits, tags")
+
+    subgraph host["your Linux host"]
+        pfw["<b>pfw: the command</b><br/><b>and its yeet service</b><br/><b>3</b> pfw pull: fetch,<br/>nothing running changes<br/><b>4</b> pfw shadow, pfw apply:<br/>compiled on the host,<br/>a mistake changes nothing"]
+        kernel["<b>kernel, 6.1 or newer</b><br/><b>5</b> pfw-core engine at XDP<br/>checked by Linux once<br/>a policy is new tables<br/>and one switch flipped<br/>each packet: pass, reset<br/>or drop, and counted"]
+        state["<b>saved state</b><br/><b>6</b> /var/lib/pfw/state.js<br/>restored after a reboot"]
+        pfw -->|"write tables"| kernel
+        pfw -->|"save"| state
+    end
+
+    trial["<b>7</b> you, or an agent:<br/>pfw enforce --confirm 10m<br/>then pfw confirm,<br/>undone unless confirmed"]
+
+    author -->|"push"| remote
+    remote -->|"pull"| host
+    kernel -->|"would block N, per rule<br/>pfw status, pfw metrics"| trial
+
+    classDef step fill:#f6f5f1,stroke:#8c8c86,color:#1a1a1a
+    classDef yeet fill:#ffe500,stroke:#0d0d0d,color:#0d0d0d
+    class write,pr,remote,kernel,state,trial step
+    class pfw yeet
+    style author fill:none,stroke:#8c8c86
+    style host fill:none,stroke:#8c8c86,stroke-dasharray:6 5
