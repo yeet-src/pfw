@@ -133,8 +133,10 @@ module to write there.
 
 ## Timeouts
 
-The keeper gives the firewall 20 seconds to answer a command, then refuses
-the request. `pfw` gives the whole exchange 30.
+The keeper gives the firewall 90 seconds to answer a command, then refuses
+the request. `pfw` gives the whole exchange 100. Nearly every command answers
+at once; `attach` and `detach` load the engine into the kernel again, which
+takes a few seconds on most machines and tens of seconds on some.
 
 ## The other two routes
 

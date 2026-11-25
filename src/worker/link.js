@@ -7,8 +7,10 @@
  */
 import { CTL, FAILED, INIT, READY, REPLY, WORKER, message } from "#/worker/protocol.js";
 
-// Moving interfaces reloads the VM, which is the slowest thing asked of it.
-const ANSWER_TIMEOUT_MS = 20_000;
+// Moving interfaces reloads the VM, which is the slowest thing asked of it:
+// the kernel takes two seconds over the engine on one machine and twenty on
+// another.
+const ANSWER_TIMEOUT_MS = 90_000;
 
 export class FirewallLink {
   #port;

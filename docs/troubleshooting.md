@@ -185,7 +185,9 @@ The dashboard opens only on a terminal. Through a pipe, in a script, or with
 
 ### Something hangs
 
-No command waits more than 30 seconds for the firewall. If one gives up, the
+No command waits more than 100 seconds for the firewall, and only `attach`
+and `detach`, which load the engine into the kernel again, take more than a
+moment. If one gives up, the
 firewall has stopped answering: `pfw restart`.
 
 ### `pfw doctor` warns about a policy on `lo`
