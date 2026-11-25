@@ -306,9 +306,10 @@ gated() {
 }
 NOT_LOGGED_IN='this host is not logged in to yeet, so yeet answers for the firewall with a login page: run `yeet login`'
 
-# No exchange waits forever: the service answers within its own 20s.
+# No exchange waits forever: the service answers within its own 90s, which
+# is room for the kernel to load the engine again on a slow machine.
 DEADLINE=''
-! command -v timeout >/dev/null 2>&1 || DEADLINE='timeout 30'
+! command -v timeout >/dev/null 2>&1 || DEADLINE='timeout 100'
 
 # Send stdin as one command in `$1` format; the reply lands in $reply and
 # the status says whether the service called it ok.
