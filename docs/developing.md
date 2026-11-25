@@ -124,7 +124,9 @@ in the middle of a trial, and cleared. It also follows `pfw logs` and reads
 the exporter. It changes the firewall on the
 host and stops it at the end, so outside CI it runs only with `PFW_E2E=yes`.
 `E2E_ON=veth` runs it across a pair of virtual interfaces in place of
-loopback, and `E2E_DAEMON_RESTART=yes` adds a restart of the yeet daemon.
+loopback, `E2E_DAEMON_RESTART=yes` adds a restart of the yeet daemon, and
+`E2E_SHORT=yes` runs only the heart of it: a policy enforcing, a crawler cut
+off, and a 60 kB upload read to its last byte.
 
 `test/ui.sh` opens the metrics app in a tmux pane, sends it keys and a click,
 and reads back what the pane shows. It changes nothing.
@@ -145,18 +147,20 @@ A page says where a diagram goes with `<!-- diagram: NAME -->` and
 ## CI and releases
 
 `.github/workflows/ci.yml` runs on pull requests and on pushes to `master`
-and `release/*`. On x86_64 and on arm64, each on the newest runner image and
-an older one, so on two kernels:
+and `release/*`. A pull request is checked once, on x86_64. A push is
+checked on x86_64 and on arm64, each on the newest runner image and an older
+one, so on two kernels:
 
 1. build, unit tests, package;
 2. `install.sh` with that package, from outside the checkout;
-3. `test/e2e.sh` on loopback, including a restart of the yeet daemon, which
-   has to bring the firewall back as it was, the way a reboot would;
+3. the short pass of `test/e2e.sh` on loopback, where a segment is largest;
 4. `test/ui.sh`: the metrics app, driven in a tmux pane with keys and a click;
-5. `test/e2e.sh` again across a pair of virtual interfaces, the client in a
-   network namespace of its own, so the traffic arrives from elsewhere.
+5. all of `test/e2e.sh` across a pair of virtual interfaces, the client in a
+   network namespace of its own, so the traffic arrives from elsewhere,
+   including a restart of the yeet daemon, which has to bring the firewall
+   back as it was, the way a reboot would.
 
-Then, in jobs of their own:
+Then, after a push, in jobs of their own:
 
 - **one engine object**: every build above produced a byte-identical
   `vm.bpf.o`, which is what lets one package serve every architecture;
@@ -165,7 +169,8 @@ Then, in jobs of their own:
   the network. This one does not gate a release;
 - **a blank machine and the README's one line**: nothing installed, then
   `curl … install.sh | sh`, which installs yeet, logs in, downloads the latest
-  release and starts the firewall, and the end-to-end test against that.
+  release and starts the firewall, and the short pass of the end-to-end test
+  against that.
 
 The end-to-end steps need the runner logged in to yeet, which serves a login
 page in place of every route of a host that is not. `install.sh` logs in with
@@ -189,15 +194,15 @@ flowchart TD
     subgraph build["on x86_64 and arm64, each on two kernels"]
         direction TB
         b1["build, unit tests, package"] --> b2["install.sh with that package"]
-        b2 --> b3["end to end on loopback,<br/>through a restart of the daemon"]
+        b2 --> b3["end to end on loopback,<br/>the short pass"]
         b3 --> b4["the metrics app, in tmux"]
-        b4 --> b5["end to end across an interface"]
+        b4 --> b5["end to end across an interface,<br/>through a restart of the daemon"]
     end
 
     build --> same["one engine object:<br/>every build made the same vm.bpf.o"]
     build --> nic["the runner's own network card<br/>does not gate the release"]
     same --> release["release: publish pfw.tar.gz,<br/>marked Latest"]
-    release --> stranger["a blank machine and the README's one line,<br/>then end to end against what it installed"]
+    release --> stranger["a blank machine and the README's one line,<br/>then the short pass against what it installed"]
 
     classDef gate fill:#3b0764,stroke:#c084fc,color:#faf5ff
     classDef ship fill:#052e16,stroke:#4ade80,color:#f0fdf4

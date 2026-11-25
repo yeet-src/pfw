@@ -10,6 +10,8 @@
 #
 #   E2E_DAEMON_RESTART=yes      also restart yeetd, as a reboot would, and
 #                               check the firewall comes back as it was
+#   E2E_SHORT=yes               only the heart of it: a policy enforcing, a
+#                               crawler cut off, and a large upload read whole
 #
 # It changes the firewall `pfw` drives, and stops it at the end, so it is for
 # CI and for scratch hosts, never one that is protecting something. On a
@@ -132,74 +134,11 @@ pfw status | grep -q 'would block [1-9]' || fail 'the rehearsal does not count w
 pfw __complete detach '' | grep -qx "$IFACE" || fail 'completion does not offer the attached interface'
 pfw __complete knob set '' | grep -qx port || fail 'completion does not offer the enforcing policy'"'"'s knob'
 
-# On trial: it blocks, and when nobody confirms it goes back by itself.
-pfw enforce --confirm 6s
-pfw status | grep -q 'trial    undone in' || fail 'status does not say a change is on trial'
-expect 000 "$PORT" GPTBot 'on trial: a crawler is cut off'
-sleep 8
-expect 200 "$PORT" GPTBot 'the trial was not confirmed: a crawler gets the page again'
-pfw status | grep -q 'not confirmed: went back' || fail 'status does not say the trial went back'
-curl -fsS -m 5 "$METRICS" | grep -q '^pfw_trial_pending 0' || fail 'Prometheus says a trial is still pending'
-
-# Confirmed, it stays.
-pfw enforce --confirm
-curl -fsS -m 5 "$METRICS" | grep -q '^pfw_trial_pending 1' || fail 'Prometheus does not say a trial is pending'
-pfw confirm
-if pfw confirm >/dev/null 2>&1; then fail 'confirm with nothing on trial did not fail'; fi
-pfw status | grep -q 'trial' && fail 'a confirmed change is still shown on trial'
-pfw status | grep -q 'enforcing' || fail 'the policy is not enforcing'
-
-expect 200 "$PORT" '' 'enforcing: a browser gets the page'
-expect 000 "$PORT" GPTBot 'enforcing: a crawler is cut off'
-
-# Rollback: to the policy before, and of a trial, at once.
-pfw apply rules:baseline/pass.pfc
-expect 200 "$PORT" GPTBot 'another policy applied: a crawler gets the page'
-pfw rollback
-pfw status | grep -q 'rules:http/crawlers.pfc' || fail 'rollback did not return to the policy before'
-expect 000 "$PORT" GPTBot 'rolled back: a crawler is cut off again'
-pfw apply rules:baseline/pass.pfc --confirm 10m
-expect 200 "$PORT" GPTBot 'a policy on trial: a crawler gets the page'
-said=$(pfw rollback)
-case $said in *'rolled back the trial'*) ;; *) fail 'rollback did not undo the trial' ;; esac
-expect 000 "$PORT" GPTBot 'the trial rolled back: a crawler is cut off again'
-
-# Several policies at once. A route gives one port a policy of its own, in
-# place of the default; the rest of the traffic still runs the default.
-pfw apply rules:baseline/pass.pfc --port "$PORT"
-pfw status | grep -q "route    tcp/$PORT  rules:baseline/pass.pfc" || fail 'status does not list the route'
-[ "$(pfw ls | grep -c ' active')" -eq 2 ] || fail 'the list does not mark both policies in place'
-expect 200 "$PORT" GPTBot 'a route: its port runs the policy that passes'
-pfw --json status | grep -q "\"at\":\"tcp/$PORT\"" || fail 'the JSON status does not say where the routed policy is'
-
-# The chain run first sees every packet, a routed one too. A policy that
-# follows a stream cannot be in it, and is refused with everything as it was.
-if pfw apply rules:http/crawlers.pfc --first >/dev/null 2>&1; then
-	expect 000 "$PORT" GPTBot 'first: a crawler is cut off before the route passes it'
-	curl -fsS -m 5 "$METRICS" | grep -q '^pfw_rule_hits_total{route="first",rule="crawler"} [1-9]' ||
-		fail 'Prometheus does not count the rule of the policy run first'
-	pfw clear --first
-else
-	pfw status | grep -q '  first ' && fail 'a refused policy is listed as running first'
-	pass "[$ON] a policy that follows a stream is refused as one to run first"
-fi
-expect 200 "$PORT" GPTBot 'nothing runs first: the route passes a crawler'
-
-# Two policies in place that both read `port` each keep a value of their own.
-pfw knob set rules:runtimes/log4shell.pfc port "$OTHER" >/dev/null
-pfw apply rules:runtimes/log4shell.pfc --port "$OTHER" >/dev/null
-pfw clear --port "$PORT" >/dev/null
-expect 000 "$PORT" GPTBot "knobs apart: the default still guards its own port"
-[ "$(pfw knob ls | grep -c '^knobs of ')" -eq 2 ] || fail 'knob ls does not list both policies in place'
-if pfw knob set port 81 >/dev/null 2>&1; then fail 'a knob two policies have was set with neither named'; fi
-pfw clear --port "$OTHER" >/dev/null
-pfw knob unset rules:runtimes/log4shell.pfc port >/dev/null
-pfw apply rules:baseline/pass.pfc --port "$PORT" >/dev/null
-
 # A policy that follows a stream reads all of a segment, however large. On
 # loopback 60 kB goes as one segment, many times the engine's window; a
 # signature at its very end is still found, and nothing is left unread.
-cat >"$work/upload.pfc" <<POLICY
+uploads() {
+	cat >"$work/upload.pfc" <<POLICY
 reassemble $UPLOADS;
 pattern mark = "PFW-E2E-MARK";
 filter {
@@ -207,83 +146,163 @@ filter {
   decide pass;
 }
 POLICY
-head -c 60000 /dev/zero | tr '\0' 'a' >"$work/clean"
-{ cat "$work/clean"; printf 'PFW-E2E-MARK'; } >"$work/marked"
-upload() { $CLIENT curl -s -o /dev/null -m 5 -w '%{http_code}' -H 'Expect:' --data-binary @"$1" "http://$HOST:$UPLOADS/" || true; }
+	head -c 60000 /dev/zero | tr '\0' 'a' >"$work/clean"
+	{ cat "$work/clean"; printf 'PFW-E2E-MARK'; } >"$work/marked"
+	upload() { $CLIENT curl -s -o /dev/null -m 5 -w '%{http_code}' -H 'Expect:' --data-binary @"$1" "http://$HOST:$UPLOADS/" || true; }
 
-pfw apply -f "$work/upload.pfc" --port "$UPLOADS" >/dev/null
-[ "$(upload "$work/clean")" = 200 ] || fail 'a clean 60 kB upload did not arrive'
-[ "$(upload "$work/marked")" = 000 ] || fail 'a signature at the end of a 60 kB upload was not caught'
-curl -fsS -m 5 "$METRICS" | grep -q '^pfw_reassembly_total{event="truncated"} [1-9]' && fail 'part of a segment went unread'
-pass "[$ON] a 60 kB upload is read to its last byte"
-pfw clear --port "$UPLOADS" >/dev/null
-
-# The routed policy survives a restart, in its place.
-pfw restart
-pfw status | grep -q "route    tcp/$PORT  rules:baseline/pass.pfc" || fail 'the route did not survive a restart'
-expect 200 "$PORT" GPTBot 'after a restart: the route still passes a crawler'
-
-pfw clear --port "$PORT"
-pfw status | grep -q '  route ' && fail 'a cleared route is still listed'
-expect 000 "$PORT" GPTBot 'the route cleared: its port is the default policy'"'"'s again'
-if pfw clear --port "$PORT" >/dev/null 2>&1; then fail 'clearing a place with nothing in it did not fail'; fi
-pfw rollback
-expect 200 "$PORT" GPTBot 'rolled back: the route is back'
-pfw clear --port "$PORT"
-expect 000 "$PORT" GPTBot 'one policy again: a crawler is cut off'
-
-# What the firewall says as it is changed.
-log=$(mktemp)
-PFW_DEBUG=1 timeout 6 pfw logs >"$log" 2>&1 &
-sleep 2
-pfw shadow >/dev/null
-pfw enforce >/dev/null
-wait || true
-grep -q 'pfw: shadow' "$log" && grep -q 'pfw: enforce' "$log" || {
-	cat "$log" >&2
-	fail 'pfw logs did not show the changes'
+	pfw apply -f "$work/upload.pfc" --port "$UPLOADS" >/dev/null
+	[ "$(upload "$work/clean")" = 200 ] || fail 'a clean 60 kB upload did not arrive'
+	[ "$(upload "$work/marked")" = 000 ] || fail 'a signature at the end of a 60 kB upload was not caught'
+	curl -fsS -m 5 "$METRICS" | grep -q '^pfw_reassembly_total{event="truncated"} [1-9]' && fail 'part of a segment went unread'
+	pass "[$ON] a 60 kB upload is read to its last byte"
+	pfw clear --port "$UPLOADS" >/dev/null
 }
-rm -f "$log"
-pass "[$ON] logs follow the firewall"
 
-pfw shadow
-expect 200 "$PORT" GPTBot 'shadow mode: a crawler gets the page'
-pfw status | grep -q 'would block' || fail 'shadow mode does not say what it would block'
-pfw enforce
-expect 000 "$PORT" GPTBot 'shadow mode off: a crawler is cut off again'
+# Every state the firewall can be in, one after another.
+full() {
+	# On trial: it blocks, and when nobody confirms it goes back by itself.
+	pfw enforce --confirm 6s
+	pfw status | grep -q 'trial    undone in' || fail 'status does not say a change is on trial'
+	expect 000 "$PORT" GPTBot 'on trial: a crawler is cut off'
+	sleep 8
+	expect 200 "$PORT" GPTBot 'the trial was not confirmed: a crawler gets the page again'
+	pfw status | grep -q 'not confirmed: went back' || fail 'status does not say the trial went back'
+	curl -fsS -m 5 "$METRICS" | grep -q '^pfw_trial_pending 0' || fail 'Prometheus says a trial is still pending'
 
-pfw knob set port "$OTHER"
-expect 200 "$PORT" GPTBot "knob port=$OTHER: the old port is left alone"
-expect 000 "$OTHER" GPTBot "knob port=$OTHER: a crawler is cut off on the new one"
-pfw knob unset port
-expect 000 "$PORT" GPTBot 'knob unset: back to guarding the default port'
+	# Confirmed, it stays.
+	pfw enforce --confirm
+	curl -fsS -m 5 "$METRICS" | grep -q '^pfw_trial_pending 1' || fail 'Prometheus does not say a trial is pending'
+	pfw confirm
+	if pfw confirm >/dev/null 2>&1; then fail 'confirm with nothing on trial did not fail'; fi
+	pfw status | grep -q 'trial' && fail 'a confirmed change is still shown on trial'
+	pfw status | grep -q 'enforcing' || fail 'the policy is not enforcing'
 
-pfw --json status | grep -q '"ok":true' || fail 'the JSON status is not ok'
-pfw metrics | grep -q '^packets' || fail 'the text metrics page is missing'
-curl -fsS -m 5 "$METRICS" | grep -q '^pfw_rule_hits_total{route="default",rule="crawler"} [1-9]' ||
-	fail 'Prometheus does not count the crawler rule'
-pass "[$ON] status, metrics and the exporter agree"
+	expect 200 "$PORT" '' 'enforcing: a browser gets the page'
+	expect 000 "$PORT" GPTBot 'enforcing: a crawler is cut off'
 
-# A restart in the middle of a trial comes back to what was confirmed.
-pfw apply rules:baseline/pass.pfc --confirm 10m
-pfw restart
-pfw status | grep -q 'rules:http/crawlers.pfc' || fail 'the policy did not survive a restart'
-pfw status | grep -q "on $IFACE" || fail "the firewall did not come back on $IFACE"
-expect 000 "$PORT" GPTBot 'after a restart: a crawler is still cut off'
+	# Rollback: to the policy before, and of a trial, at once.
+	pfw apply rules:baseline/pass.pfc
+	expect 200 "$PORT" GPTBot 'another policy applied: a crawler gets the page'
+	pfw rollback
+	pfw status | grep -q 'rules:http/crawlers.pfc' || fail 'rollback did not return to the policy before'
+	expect 000 "$PORT" GPTBot 'rolled back: a crawler is cut off again'
+	pfw apply rules:baseline/pass.pfc --confirm 10m
+	expect 200 "$PORT" GPTBot 'a policy on trial: a crawler gets the page'
+	said=$(pfw rollback)
+	case $said in *'rolled back the trial'*) ;; *) fail 'rollback did not undo the trial' ;; esac
+	expect 000 "$PORT" GPTBot 'the trial rolled back: a crawler is cut off again'
 
-# The nearest thing to a reboot that leaves the machine up: the daemon goes
-# down and comes back, and has to bring the firewall with it.
-if [ "${E2E_DAEMON_RESTART:-}" = yes ]; then
-	sudo systemctl restart yeetd
-	tries=0
-	until pfw status >/dev/null 2>&1; do
-		tries=$((tries + 1))
-		[ "$tries" -lt 60 ] || fail 'the firewall did not come back after yeetd restarted'
-		sleep 1
-	done
-	pfw status | grep -q 'rules:http/crawlers.pfc' || fail 'the policy did not survive yeetd restarting'
-	pfw status | grep -q "on $IFACE" || fail "the firewall did not come back on $IFACE after yeetd restarted"
-	expect 000 "$PORT" GPTBot 'after yeetd restarted: a crawler is still cut off'
+	# Several policies at once. A route gives one port a policy of its own, in
+	# place of the default; the rest of the traffic still runs the default.
+	pfw apply rules:baseline/pass.pfc --port "$PORT"
+	pfw status | grep -q "route    tcp/$PORT  rules:baseline/pass.pfc" || fail 'status does not list the route'
+	[ "$(pfw ls | grep -c ' active')" -eq 2 ] || fail 'the list does not mark both policies in place'
+	expect 200 "$PORT" GPTBot 'a route: its port runs the policy that passes'
+	pfw --json status | grep -q "\"at\":\"tcp/$PORT\"" || fail 'the JSON status does not say where the routed policy is'
+
+	# The chain run first sees every packet, a routed one too. A policy that
+	# follows a stream cannot be in it, and is refused with everything as it was.
+	if pfw apply rules:http/crawlers.pfc --first >/dev/null 2>&1; then
+		expect 000 "$PORT" GPTBot 'first: a crawler is cut off before the route passes it'
+		curl -fsS -m 5 "$METRICS" | grep -q '^pfw_rule_hits_total{route="first",rule="crawler"} [1-9]' ||
+			fail 'Prometheus does not count the rule of the policy run first'
+		pfw clear --first
+	else
+		pfw status | grep -q '  first ' && fail 'a refused policy is listed as running first'
+		pass "[$ON] a policy that follows a stream is refused as one to run first"
+	fi
+	expect 200 "$PORT" GPTBot 'nothing runs first: the route passes a crawler'
+
+	# Two policies in place that both read `port` each keep a value of their own.
+	pfw knob set rules:runtimes/log4shell.pfc port "$OTHER" >/dev/null
+	pfw apply rules:runtimes/log4shell.pfc --port "$OTHER" >/dev/null
+	pfw clear --port "$PORT" >/dev/null
+	expect 000 "$PORT" GPTBot "knobs apart: the default still guards its own port"
+	[ "$(pfw knob ls | grep -c '^knobs of ')" -eq 2 ] || fail 'knob ls does not list both policies in place'
+	if pfw knob set port 81 >/dev/null 2>&1; then fail 'a knob two policies have was set with neither named'; fi
+	pfw clear --port "$OTHER" >/dev/null
+	pfw knob unset rules:runtimes/log4shell.pfc port >/dev/null
+	pfw apply rules:baseline/pass.pfc --port "$PORT" >/dev/null
+
+	uploads
+
+	# The routed policy survives a restart, in its place.
+	pfw restart
+	pfw status | grep -q "route    tcp/$PORT  rules:baseline/pass.pfc" || fail 'the route did not survive a restart'
+	expect 200 "$PORT" GPTBot 'after a restart: the route still passes a crawler'
+
+	pfw clear --port "$PORT"
+	pfw status | grep -q '  route ' && fail 'a cleared route is still listed'
+	expect 000 "$PORT" GPTBot 'the route cleared: its port is the default policy'"'"'s again'
+	if pfw clear --port "$PORT" >/dev/null 2>&1; then fail 'clearing a place with nothing in it did not fail'; fi
+	pfw rollback
+	expect 200 "$PORT" GPTBot 'rolled back: the route is back'
+	pfw clear --port "$PORT"
+	expect 000 "$PORT" GPTBot 'one policy again: a crawler is cut off'
+
+	# What the firewall says as it is changed.
+	log=$(mktemp)
+	PFW_DEBUG=1 timeout 6 pfw logs >"$log" 2>&1 &
+	sleep 2
+	pfw shadow >/dev/null
+	pfw enforce >/dev/null
+	wait || true
+	grep -q 'pfw: shadow' "$log" && grep -q 'pfw: enforce' "$log" || {
+		cat "$log" >&2
+		fail 'pfw logs did not show the changes'
+	}
+	rm -f "$log"
+	pass "[$ON] logs follow the firewall"
+
+	pfw shadow
+	expect 200 "$PORT" GPTBot 'shadow mode: a crawler gets the page'
+	pfw status | grep -q 'would block' || fail 'shadow mode does not say what it would block'
+	pfw enforce
+	expect 000 "$PORT" GPTBot 'shadow mode off: a crawler is cut off again'
+
+	pfw knob set port "$OTHER"
+	expect 200 "$PORT" GPTBot "knob port=$OTHER: the old port is left alone"
+	expect 000 "$OTHER" GPTBot "knob port=$OTHER: a crawler is cut off on the new one"
+	pfw knob unset port
+	expect 000 "$PORT" GPTBot 'knob unset: back to guarding the default port'
+
+	pfw --json status | grep -q '"ok":true' || fail 'the JSON status is not ok'
+	pfw metrics | grep -q '^packets' || fail 'the text metrics page is missing'
+	curl -fsS -m 5 "$METRICS" | grep -q '^pfw_rule_hits_total{route="default",rule="crawler"} [1-9]' ||
+		fail 'Prometheus does not count the crawler rule'
+	pass "[$ON] status, metrics and the exporter agree"
+
+	# A restart in the middle of a trial comes back to what was confirmed.
+	pfw apply rules:baseline/pass.pfc --confirm 10m
+	pfw restart
+	pfw status | grep -q 'rules:http/crawlers.pfc' || fail 'the policy did not survive a restart'
+	pfw status | grep -q "on $IFACE" || fail "the firewall did not come back on $IFACE"
+	expect 000 "$PORT" GPTBot 'after a restart: a crawler is still cut off'
+
+	# The nearest thing to a reboot that leaves the machine up: the daemon goes
+	# down and comes back, and has to bring the firewall with it.
+	if [ "${E2E_DAEMON_RESTART:-}" = yes ]; then
+		sudo systemctl restart yeetd
+		tries=0
+		until pfw status >/dev/null 2>&1; do
+			tries=$((tries + 1))
+			[ "$tries" -lt 60 ] || fail 'the firewall did not come back after yeetd restarted'
+			sleep 1
+		done
+		pfw status | grep -q 'rules:http/crawlers.pfc' || fail 'the policy did not survive yeetd restarting'
+		pfw status | grep -q "on $IFACE" || fail "the firewall did not come back on $IFACE after yeetd restarted"
+		expect 000 "$PORT" GPTBot 'after yeetd restarted: a crawler is still cut off'
+	fi
+}
+
+# The short pass: one policy enforcing, and a large upload read whole.
+if [ -n "${E2E_SHORT:-}" ]; then
+	pfw enforce
+	expect 200 "$PORT" '' 'enforcing: a browser gets the page'
+	expect 000 "$PORT" GPTBot 'enforcing: a crawler is cut off'
+	uploads
+else
+	full
 fi
 
 pfw clear
