@@ -76,13 +76,14 @@ Things to know:
 pfw saves, and restores when it starts:
 
 - the interfaces it is attached to,
-- the policy in place, and the one before it, for `pfw rollback`,
+- the policies in place and where each is, and what was in place before the
+  last change, for `pfw rollback`,
 - the knobs you have set, for every policy,
 - whether shadow mode is on.
 
 So a restart, an upgrade or a reboot brings it back as you left it.
 
-It is saved after `attach`, `detach`, `apply`, `clear`, `shadow`, `unshadow`,
+It is saved after `attach`, `detach`, `apply`, `clear`, `shadow`, `enforce`,
 `confirm`, `rollback` and `knob set`/`unset`, to `/var/lib/pfw/state.js`, with `sudo`. Each of
 those commands ends with a line saying so:
 

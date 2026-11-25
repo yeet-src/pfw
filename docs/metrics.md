@@ -99,8 +99,8 @@ pfw status
 ● pfw  up 3d 4h   on eth0
   policy   rules:http/crawlers.pfc @ b58a001   enforcing   applied 2h ago
   knobs    port 8080
-  packets  1.23M seen   pass 1.19M   drop 312   rst 4.1k   cut off 17
-  rules    crawler 4.1k
+  packets  1.23M seen   pass 1.19M   drop 312   rst 4.1k   ban 17
+  rules    crawler 1.4k
 ```
 
 It exits with a non-zero status when pfw is down or does not answer, so it
@@ -113,13 +113,17 @@ packets: the one that was caught, and the retries the client sends before
 it gives up. So `rst 12` can be three requests, and in shadow mode `would
 block 10` can be two.
 
-`cut off` is the nearest thing to a count of requests: the connections and
-senders a `rst` or `ban` verdict was left standing on, one for each, however
-many packets followed. It is not a fourth kind of packet, and is not added
-to `blocked`: blocked is `drop` plus `rst`.
+The `rules` line is the nearest thing to a count of requests: a rule is
+counted **once, when it decides**, however many packets its verdict then
+stops. The packets that followed are counted apart, as
+`pfw_rule_standing_packets_total`.
 
-An `unread` line appears when segments arrived larger than the engine reads.
-See [What pfw does not see](security.md#what-pfw-does-not-see).
+`ban` is the senders banned. It is not a fourth kind of packet, and is not
+added to `blocked`: the packet that earned a ban is one of the drops, and
+blocked is `drop` plus `rst`.
+
+With [several policies in place](policies.md#several-policies-at-once),
+each is a line of its own, and a rule says whose it is: `crawler (tcp/8443)`.
 
 ## Prometheus
 
@@ -151,9 +155,13 @@ State:
 | `pfw_shadow` | 1 while in shadow mode |
 | `pfw_trial_pending` | 1 while a change made with `--confirm` waits to be confirmed |
 | `pfw_policy_enforcing` | 1 while a policy is in place |
-| `pfw_policy_info{name,rev,severity,cve}` | the policy in place |
-| `pfw_policy_applied_timestamp_seconds` | when it was applied |
-| `pfw_knob{policy,knob}` | the policy's numeric knobs, as set |
+| `pfw_policy_info{route,name,rev,severity,cve}` | the policies in place, one series each |
+| `pfw_policy_applied_timestamp_seconds{route}` | when each was applied |
+| `pfw_knob{policy,knob}` | their numeric knobs, as set |
+
+`route` is where a policy is: `default`; `first`, then `first.1` and so on
+down the chain run first; or the packets a route is for, as `pfw status`
+names it (`tcp/8443`, `10.1.0.0/16 tcp/22 on eth0`).
 
 Traffic:
 
@@ -161,9 +169,10 @@ Traffic:
 |---|---|
 | `pfw_packets_seen_total` | packets that reached pfw |
 | `pfw_packets_total{verdict}` | packets by verdict: `pass`, `drop`, `rst`. Each packet is in one; a `ban` drops, and is counted as a drop |
-| `pfw_cut_off_total` | connections and senders a `rst` or `ban` was left standing on: one for each, however many packets it then stopped |
-| `pfw_program_runs_total` | packets the policy ran on |
-| `pfw_shadowed_total` | packets that would have been blocked, in shadow mode |
+| `pfw_bans_total` | `ban` verdicts decided. The packet of each is a drop, and is counted as one |
+| `pfw_program_runs_total` | packets a policy ran on |
+| `pfw_shadowed_total` | blocking verdicts shadow mode let through |
+| `pfw_shadow_standing_packets_total` | packets a verdict already standing would have stopped, passed in shadow mode |
 | `pfw_standing_verdict_packets_total{scope}` | packets decided by a verdict already standing, on their `flow` or `source` |
 | `pfw_flows_created_total` | connections pfw started tracking |
 | `pfw_scanned_bytes_total` | payload bytes read |
@@ -173,12 +182,14 @@ Rules and timing:
 
 | metric | meaning |
 |---|---|
-| `pfw_rule_hits_total{rule}` | packets that ended on each rule, since the policy was applied |
-| `pfw_rule_runs_total{rule}` | decisions timed, by the rule they ended on |
-| `pfw_rule_decide_nanoseconds_total{rule}` | time spent deciding, by rule |
+| `pfw_rule_hits_total{route,rule}` | times each rule decided, since its policy was applied |
+| `pfw_rule_standing_packets_total{route,rule}` | packets stopped by a verdict the rule left standing: a dropped connection's retries, what a banned sender goes on to send |
+| `pfw_rule_runs_total{route,rule}` | decisions timed, by the rule they ended on |
+| `pfw_rule_decide_nanoseconds_total{route,rule}` | time spent deciding, by rule |
 | `pfw_decide_duration_nanoseconds` | histogram of how long a decision took |
 
-The rule named `-` stands for packets that ended on no rule.
+The rule named `-` stands for packets that ended on no rule. Two policies
+may name a rule alike, so sum `by (rule)` only when that is what you mean.
 
 Health:
 
@@ -188,7 +199,7 @@ Health:
 | `pfw_events_logged_total` | events sent from the policy |
 | `pfw_events_dropped_total` | events lost on the way |
 | `pfw_frames_sampled_total` | packets copied out as samples |
-| `pfw_reassembly_total{event}` | TCP segments that did not simply follow on; `mid_join`, `oversize` and `truncated` are data not fully inspected |
+| `pfw_reassembly_total{event}` | TCP segments that did not simply follow on; `oversize` and `truncated` are data not fully inspected |
 | `pfw_h2_total{event}` | HTTP/2 header blocks; `unresolved`, `truncated` and `failed` are headers not fully read |
 
 ### Worth alerting on
@@ -205,8 +216,7 @@ Grafana dashboard beside them in
 - `rate(pfw_faults_total[5m]) > 0`.
 - `rate(pfw_events_dropped_total[5m]) > 0`.
 - A rise in `pfw_reassembly_total{event=~"oversize|truncated"}`: traffic pfw
-  cannot fully see. `truncated` is segments read only in part, and `pfw
-  status` shows it as an `unread` line. See
+  cannot fully see. See
   [What pfw cannot see](security.md#what-pfw-does-not-see).
 
 Rates are for Prometheus to work out: `rate(pfw_packets_total[1m])`.

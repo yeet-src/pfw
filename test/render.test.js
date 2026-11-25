@@ -11,11 +11,14 @@ const { test } = yeet;
 const NOW = 1_700_000_000_000;
 const plain = palette(false);
 
+const WAF = { at: "default", place: "default", name: "acme:edge/waf.pfc@a1b2c3d", bytes: 120, rules: ["-", "sqli"], applied_at: NOW - 7_200_000, knobs: [{ name: "port", kind: "number", default: 80n, value: 8080n, set: true }, { name: "enforce", kind: "number", default: 1n, value: 1n, set: false }] };
+
 const REPORT = {
   running: true,
   started_at: NOW - 3 * 86_400_000 - 4 * 3_600_000,
   interfaces: [{ name: "eth0", index: 2 }],
-  policy: { name: "acme:edge/waf.pfc@a1b2c3d", bytes: 120, rules: ["-", "sqli"], applied_at: NOW - 7_200_000, knobs: [{ name: "port", kind: "number", default: 80n, value: 8080n, set: true }, { name: "enforce", kind: "number", default: 1n, value: 1n, set: false }] },
+  policy: WAF,
+  policies: [WAF],
   shadow: false,
   counters: { seen: 1_234_567n, passed: 1_190_000n, dropped: 312n, rsts: 4100n, bans: 0n, faults: 0n },
   rules: { "-": 9n, sqli: 3900n, crawler: 212n },
@@ -34,17 +37,41 @@ test("status shows the policy, the verdicts and the busiest rules first", () => 
 
   assert(text.includes("● pfw  up 3d 4h   on eth0"));
   assert(text.includes("acme:edge/waf.pfc @ a1b2c3d   enforcing   applied 2h ago"));
-  assert(text.includes("1.23M seen   pass 1.19M   drop 312   rst 4.1k   cut off 0"));
+  assert(text.includes("1.23M seen   pass 1.19M   drop 312   rst 4.1k   ban 0"));
   assert(text.includes("  knobs    port 8080\n"));
   assert(text.includes("sqli 3.9k   crawler 212"));
   assert(!text.includes("- 9"));
 });
 
 test("status without a policy says everything passes", () => {
-  const text = status({ ...REPORT, policy: null, rules: {} }, plain, NOW);
+  const text = status({ ...REPORT, policy: null, policies: [], rules: {} }, plain, NOW);
 
   assert(text.includes("none: passing everything"));
   assert(!text.includes("rules"));
+});
+
+test("status lists every policy in place: the default, the chain run first, the routes", () => {
+  const first = { ...WAF, at: "first", place: "first", name: "acme:net/flood.pfc@a1b2c3d", knobs: [] };
+  const route = { ...WAF, at: "10.1.0.0/16 tcp/22 on eth0", place: "route", name: "acme:ssh.pfc@a1b2c3d", knobs: [] };
+  const programs = [
+    { at: "default", rules: { "-": 9n, sqli: 30n }, enforced_rules: {}, timing: {} },
+    { at: "first", rules: { flood: 7n }, enforced_rules: {}, timing: {} },
+    { at: route.at, rules: { sqli: 2n }, enforced_rules: {}, timing: {} },
+  ];
+  const text = status({ ...REPORT, policies: [WAF, first, route], programs }, plain, NOW);
+
+  assert(text.includes("  policy   acme:edge/waf.pfc @ a1b2c3d   enforcing   applied 2h ago\n"), text);
+  assert(text.includes("  first    acme:net/flood.pfc @ a1b2c3d   enforcing   applied 2h ago\n"), text);
+  assert(text.includes("  route    10.1.0.0/16 tcp/22 on eth0  acme:ssh.pfc @ a1b2c3d   enforcing   applied 2h ago\n"), text);
+  // Two policies may name a rule alike, so each rule says whose it is.
+  assert(text.includes("sqli (default) 30   flood (first) 7   sqli (10.1.0.0/16 tcp/22 on eth0) 2"), text);
+});
+
+test("status with routes and no default says what the rest of the packets do", () => {
+  const route = { ...WAF, at: "tcp/8443", place: "route" };
+  const text = status({ ...REPORT, policy: null, policies: [route], rules: {} }, plain, NOW);
+
+  assert(text.includes("  policy   none by default: what no route claims passes\n  route    tcp/8443  acme:edge/waf.pfc"), text);
 });
 
 test("plain text carries no escapes and tty text carries no dim", () => {
@@ -231,16 +258,10 @@ test("shadow mode is said on the first line, with what would have been blocked",
 
   assert(text.includes("on eth0   shadow mode: nothing is blocked"));
   assert(text.includes("shadow (dry run)"));
-  assert(text.includes("cut off 0   would block 329"));
+  assert(text.includes("ban 0   would block 329"));
 });
 
-test("blocked is drops and resets: a verdict left standing is not a third packet", () => {
-  const text = status({ ...REPORT, counters: { ...REPORT.counters, dropped: 0n, rsts: 96n, bans: 96n } }, plain, NOW);
-  assert(text.includes("drop 0   rst 96   cut off 96"));
-});
-
-test("status says when segments were only partly read, and not otherwise", () => {
-  assert(!status(REPORT, plain, NOW).includes("unread"));
-  const text = status({ ...REPORT, counters: { ...REPORT.counters, reasm_trunc: 12n } }, plain, NOW);
-  assert(text.includes("  unread   12 segments were larger than the engine reads   the rest of each passed uninspected: see pfw doctor"));
+test("a ban is said beside the verdicts: its packet is one of the drops", () => {
+  const text = status({ ...REPORT, counters: { ...REPORT.counters, dropped: 12n, rsts: 96n, bans: 3n } }, plain, NOW);
+  assert(text.includes("drop 12   rst 96   ban 3"));
 });

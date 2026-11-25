@@ -2,7 +2,7 @@
  * `Firewall.status()` and `Firewall.stats()` return and builds the object
  * the Prometheus encoder renders, so it is tested without a kernel.
  */
-import { by, counter, gauge, histogram } from "yeet:telemetry";
+import { counter, gauge, histogram } from "yeet:telemetry";
 
 import { splitName } from "#/fw/name.js";
 
@@ -33,11 +33,12 @@ const REASSEMBLY = { retransmit: "reasm_retrans", mid_join: "reasm_midjoin", hel
 const H2 = { decoded: "h2_blocks", not_h2: "h2_raw", unresolved: "h2_unresolved", truncated: "h2_trunc", failed: "h2_failed" };
 const STANDING = { flow: "enforced", source: "src_enforced" };
 
-// The enforcing policy's labels: its name, and what it says about itself.
+// A policy's labels: where it is, its name, and what it says about itself.
 function policyLabels(policy) {
   const { rev } = splitName(policy.name);
   const { severity, cves = [] } = policy.meta ?? {};
   return {
+    route: policy.at,
     name: policy.name,
     ...(rev && { rev }),
     ...(severity && { severity }),
@@ -45,14 +46,22 @@ function policyLabels(policy) {
   };
 }
 
-// A string knob is not a number, so only the numeric ones are gauges.
-const knobValues = (policy) =>
-  (policy.knobs ?? []).filter((k) => k.kind === "number").map((k) => [{ policy: splitName(policy.name).source, knob: k.name }, k.value]);
+// A string knob is not a number, so only the numeric ones are gauges. A
+// policy in two places has its knobs once.
+const knobValues = (policies) => [...new Map(policies.flatMap((policy) =>
+  (policy.knobs ?? []).filter((k) => k.kind === "number").map((k) => {
+    const labels = { policy: splitName(policy.name).source, knob: k.name };
+    return [`${labels.policy} ${labels.knob}`, [labels, k.value]];
+  }))).values()];
 
-const perRule = (timing, field) => Object.entries(timing ?? {}).map(([rule, t]) => [{ rule }, t[field]]);
+// One sample for every rule of every policy in place, by where it is.
+const perRule = (programs, read) =>
+  programs.flatMap((program) => Object.entries(read(program) ?? {}).map(([rule, value]) => [{ route: program.at, rule }, value]));
 
 export function document(status, stats) {
-  const policy = status.policy;
+  const { policies } = status;
+  const programs = stats.programs ?? [];
+  const some = policies.length > 0;
   const decide = decideBuckets(stats.decide_hist);
 
   return {
@@ -65,23 +74,27 @@ export function document(status, stats) {
       shadow: gauge({ help: "1 while enforcement is a dry run.", value: stats.shadow }),
       trial_pending: gauge({ help: "1 while a change waits to be confirmed, and is undone if it is not.", value: Boolean(status.on_trial) }),
       policy: {
-        enforcing: gauge({ help: "1 while a policy is enforcing.", value: policy !== null }),
-        info: policy && gauge({ help: "The policy now enforcing.", value: [[policyLabels(policy), 1]] }),
-        applied_timestamp_seconds: policy && gauge({
-          help: "When the policy now enforcing was applied.",
-          value: policy.applied_at / 1000,
-        }),
+        enforcing: gauge({ help: "1 while a policy is enforcing.", value: some }),
+        info: some ? gauge({
+          help: "The policies now enforcing. `route` is where each is: default, first and first.N down the chain run first, or the packets a route is for.",
+          value: policies.map((policy) => [policyLabels(policy), 1]),
+        }) : null,
+        applied_timestamp_seconds: some ? gauge({
+          help: "When each policy now enforcing was applied.",
+          value: policies.map((policy) => [{ route: policy.at }, policy.applied_at / 1000]),
+        }) : null,
       },
-      knob: policy && gauge({ help: "The enforcing policy's numeric knobs, as they are set.", value: knobValues(policy) }),
+      knob: some ? gauge({ help: "The numeric knobs of the policies enforcing, as they are set.", value: knobValues(policies) }) : null,
 
       packets_seen_total: counter({ help: "Packets that reached the XDP hook.", value: stats.seen }),
-      packets_total: counter({ help: "Packets the policy decided, by verdict.", value: verdicts(stats) }),
-      cut_off_total: counter({
-        help: "Connections and senders a blocking verdict was left standing on: one for each rst or ban decided, however many packets it then stopped.",
-        value: stats.bans,
+      packets_total: counter({ help: "Packets decided, by verdict.", value: verdicts(stats) }),
+      bans_total: counter({ help: "`ban` verdicts decided. The packet of each is a drop, and is counted as one.", value: stats.bans }),
+      program_runs_total: counter({ help: "Packets a policy's program ran on.", value: stats.ran }),
+      shadowed_total: counter({ help: "Blocking verdicts shadow mode let through.", value: stats.shadowed }),
+      shadow_standing_packets_total: counter({
+        help: "Packets a verdict already standing would have stopped, passed because of shadow mode.",
+        value: stats.shadow_enforced,
       }),
-      program_runs_total: counter({ help: "Packets the policy's program ran on.", value: stats.ran }),
-      shadowed_total: counter({ help: "Packets a verdict would have blocked, passed because of shadow mode.", value: stats.shadowed }),
       standing_verdict_packets_total: counter({
         help: "Packets decided by a verdict already standing on their flow or their source.",
         value: kinds("scope", stats, STANDING),
@@ -105,11 +118,21 @@ export function document(status, stats) {
       }),
 
       rule_hits_total: counter({
-        help: "Packets that ended on each rule, since its policy was applied.",
-        value: by("rule", stats.rules),
+        help: "Times each rule decided, since its policy was applied. `route` is where the policy is.",
+        value: perRule(programs, (program) => program.rules),
       }),
-      rule_runs_total: counter({ help: "Decisions timed, by the rule they ended on.", value: perRule(stats.timing, "runs") }),
-      rule_decide_nanoseconds_total: counter({ help: "Time spent deciding, by the rule the decision ended on.", value: perRule(stats.timing, "ns") }),
+      rule_standing_packets_total: counter({
+        help: "Packets stopped by a verdict a rule left standing: a dropped connection's retransmissions, what a banned sender goes on to send.",
+        value: perRule(programs, (program) => program.enforced_rules),
+      }),
+      rule_runs_total: counter({
+        help: "Decisions timed, by the rule they ended on.",
+        value: perRule(programs, (program) => Object.fromEntries(Object.entries(program.timing).map(([rule, t]) => [rule, t.runs]))),
+      }),
+      rule_decide_nanoseconds_total: counter({
+        help: "Time spent deciding, by the rule the decision ended on.",
+        value: perRule(programs, (program) => Object.fromEntries(Object.entries(program.timing).map(([rule, t]) => [rule, t.ns]))),
+      }),
       decide_duration_nanoseconds: histogram({
         help: "How long a packet's decision took.",
         buckets: decide.buckets,

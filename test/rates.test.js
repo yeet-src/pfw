@@ -47,7 +47,16 @@ test("rules have a speed over the window", () => {
   rates.push(...at(0, 0, 0, { sqli: 0n }));
   rates.push(...at(4, 100, 0, { sqli: 20n }));
 
-  assertEquals(rates.ruleSpeeds(), { sqli: 5 });
+  assertEquals(rates.ruleSpeeds(), { "default\nsqli": 5 });
+});
+
+test("a rule's speed is its own, whichever policy names another alike", () => {
+  const programs = (a, b) => ({ programs: [{ at: "default", rules: { sqli: a }, enforced_rules: {}, timing: {} }, { at: "tcp/8443", rules: { sqli: b }, enforced_rules: {}, timing: {} }] });
+  const rates = new Rates();
+  rates.push({ ...at(0, 0)[0], ...programs(0n, 0n) }, 0);
+  rates.push({ ...at(4, 100)[0], ...programs(20n, 8n) }, 4000);
+
+  assertEquals(rates.ruleSpeeds(), { "default\nsqli": 5, "tcp/8443\nsqli": 2 });
 });
 
 test("a percentile is the bound it falls under", () => {

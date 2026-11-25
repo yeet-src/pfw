@@ -4,11 +4,10 @@
  */
 import { bar, chart, percent, resample, sparkline } from "#/ctl/render/bars.js";
 import { bytes, count, duration, nanos, splitName } from "#/ctl/render/format.js";
+import { ruleCounts, unmatched as unmatchedOf } from "#/fw/counted.js";
 import { quantile } from "#/fw/rates.js";
 import { NBSP, columns } from "#/ui/line.jsx";
 
-// The slot pfw-core counts packets that ended on no rule under.
-const NO_RULE = "-";
 const VERDICTS = [["pass", "passed"], ["drop", "dropped"], ["rst", "rsts"]];
 const DOT = `${NBSP}·${NBSP}`;
 
@@ -23,15 +22,17 @@ const heat = (share) => HEAT[Math.min(HEAT.length - 1, Math.floor(share * HEAT.l
 // The top box's title: is it up, where, enforcing what.
 export function status({ report }, now) {
   const attached = report.interfaces.length > 0;
-  const { source, rev } = report.policy ? splitName(report.policy.name) : {};
+  // The default names the firewall; with none, the first policy in place does.
+  const [named, ...others] = report.policies;
+  const { source, rev } = named ? splitName(named.name) : {};
   return [
     ["strong", "pfw"], ["", NBSP], [attached ? "ok" : "warn", "●"], ["", NBSP],
     ["note", `up${NBSP}${duration(now - report.started_at).replaceAll(" ", NBSP)}`],
     ["frame", DOT],
     [attached ? "tag" : "warn", attached ? report.interfaces.map((i) => i.name).join(",") : "no interface"],
     ["frame", DOT],
-    ...(report.policy
-      ? [["name", source], ...(rev ? [["frame", `${NBSP}@${NBSP}`], ["value", rev]] : [])]
+    ...(named
+      ? [["name", source], ...(rev ? [["frame", `${NBSP}@${NBSP}`], ["value", rev]] : []), ...(others.length > 0 ? [["note", `${NBSP}+${others.length}`]] : [])]
       : [["warn", `no${NBSP}policy:${NBSP}passing${NBSP}everything`]]),
     ...(report.shadow ? [["frame", DOT], ["warn", `SHADOW:${NBSP}nothing${NBSP}is${NBSP}blocked`]] : []),
   ];
@@ -106,23 +107,19 @@ export function speeds({ speeds: all }, width) {
   });
 }
 
-/* The policy's rules, the busiest first. pfw-core also keeps a slot for the
- * packets that ended on no rule at all (a bare `decide pass`); that is not a
- * rule, so it is kept apart, as `unmatched`.
+/* The rules of every policy in place, the busiest first. pfw-core also
+ * keeps a slot for the packets that ended on no rule at all (a bare
+ * `decide pass`); that is not a rule, so it is kept apart, as `unmatched`.
  */
-const ruleEntries = ({ stats }) =>
-  Object.entries(stats.rules ?? {}).map(([name, hits]) => ({ name, hits: num(hits), timing: stats.timing?.[name] }));
-
-export const rulesOf = (view) => ruleEntries(view).filter((r) => r.name !== NO_RULE).sort((a, b) => b.hits - a.hits);
+export const rulesOf = (view) => ruleCounts(view.stats);
 
 // How long the packets no rule took were in deciding: the cost of a clean pass.
 export function unmatched(view) {
-  const timing = view.stats.timing?.[NO_RULE];
-  const runs = num(timing?.runs);
+  const { runs, ns } = unmatchedOf(view.stats);
   return [
     ["label", "matched no rule"], ["frame", DOT],
     ["label", "timed "], ["strong", count(runs)], ["frame", DOT],
-    ["label", "mean "], ["value", runs > 0 ? nanos(num(timing.ns) / runs) : "none yet"],
+    ["label", "mean "], ["value", runs > 0 ? nanos(ns / runs) : "none yet"],
   ];
 }
 
@@ -136,7 +133,7 @@ export function ruleTable(view, list, width) {
   const most = Math.max(1, ...list.map((r) => r.hits));
   const cells = list.map((r) => [
     r.name, count(r.hits), percent(r.hits, total), meanOf(r),
-    view.ruleSpeeds?.[r.name] > 0 ? perSecond(view.ruleSpeeds[r.name]) : "",
+    view.ruleSpeeds?.[r.id] > 0 ? perSecond(view.ruleSpeeds[r.id]) : "",
   ]);
   const widths = RULE_HEAD.slice(0, 5).map((head, col) => Math.max(head.length, ...cells.map((row) => row[col].length)));
   const meterWidth = Math.max(4, width - widths.reduce((sum, w) => sum + w + 2, 0));
@@ -231,8 +228,9 @@ export function timingFacts({ stats }) {
 
 // What takes longest to decide: the rules, and a clean pass, by mean time.
 export function slowest(view, width) {
-  const timed = Object.entries(view.stats.timing ?? {})
-    .map(([name, t]) => ({ name: name === NO_RULE ? "matched no rule" : name, runs: num(t.runs), mean: num(t.runs) > 0 ? num(t.ns) / num(t.runs) : 0 }))
+  const clean = unmatchedOf(view.stats);
+  const timed = [...rulesOf(view).map((r) => ({ name: r.name, runs: num(r.timing?.runs), ns: num(r.timing?.ns) })), { name: "matched no rule", ...clean }]
+    .map((r) => ({ ...r, mean: r.runs > 0 ? r.ns / r.runs : 0 }))
     .filter((r) => r.runs > 0)
     .sort((a, b) => b.mean - a.mean);
   if (timed.length === 0) return [[["note", "nothing timed yet"]]];
@@ -253,7 +251,7 @@ export function ruleDetail(view, rule, width) {
     ...facts([
       ["hits", count(rule.hits)],
       ["share", percent(rule.hits, total) || "none yet"],
-      ["rate", perSecond(view.ruleSpeeds?.[rule.name]), "ok"],
+      ["rate", perSecond(view.ruleSpeeds?.[rule.id]), "ok"],
       ["timed", count(num(rule.timing?.runs))],
       ["mean", meanOf(rule) || "none yet", "value"],
       ["total", nanos(num(rule.timing?.ns)), "value"],
@@ -266,14 +264,14 @@ export function ruleDetail(view, rule, width) {
 // Every counter the VM keeps, by what it is about.
 const GROUPS = [
   ["packets", ["seen", "ran", "passed", "dropped", "rsts", "bans", "shadowed", "faults"]],
-  ["standing", ["enforced", "src_enforced", "nat_reversed"]],
+  ["standing", ["enforced", "src_enforced", "shadow_enforced", "nat_reversed"]],
   ["inspection", ["scanned_bytes", "flows_created", "decide_ns"]],
   ["events", ["logged", "sampled", "ring_full"]],
   ["reassembly", ["reasm_retrans", "reasm_midjoin", "reasm_held", "reasm_slid", "reasm_over", "reasm_trunc"]],
   ["http/2", ["h2_blocks", "h2_raw", "h2_unresolved", "h2_trunc", "h2_failed"]],
 ];
 const UNITS = { scanned_bytes: bytes, decide_ns: nanos };
-const NAMES = { decide_ns: "time deciding", scanned_bytes: "scanned", src_enforced: "by source ban", enforced: "by flow verdict", bans: "cut off", reasm_trunc: "partly read" };
+const NAMES = { decide_ns: "time deciding", scanned_bytes: "scanned", src_enforced: "by source ban", enforced: "by flow verdict", shadow_enforced: "passed in shadow", reasm_trunc: "partly read" };
 const TROUBLE = new Set(["faults", "ring_full", "reasm_over", "reasm_trunc", "h2_failed"]);
 
 const GROUP_WIDTH = 24;

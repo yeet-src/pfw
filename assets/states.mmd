@@ -12,8 +12,8 @@ stateDiagram-v2
 
     Passing --> Shadow: pfw shadow, then pfw apply
     Passing --> Enforcing: pfw apply
-    Shadow --> Enforcing: pfw unshadow
-    Shadow --> Trial: pfw unshadow --confirm 10m
+    Shadow --> Enforcing: pfw enforce
+    Shadow --> Trial: pfw enforce --confirm 10m
     Trial --> Enforcing: pfw confirm
     Trial --> Shadow: the deadline passes, or pfw rollback
     Enforcing --> Shadow: pfw shadow

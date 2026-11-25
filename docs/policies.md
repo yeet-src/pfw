@@ -1,8 +1,9 @@
 # Using policies
 
 A **policy** is one file ending in `.pfc`: the program pfw runs on every
-packet. pfw runs **one policy at a time**. Policies live in git repositories,
-which pfw calls **remotes**.
+packet. One policy is the usual setup; pfw can also run
+[several at once](#several-policies-at-once), each for packets of its own.
+Policies live in git repositories, which pfw calls **remotes**.
 
 ## Remotes
 
@@ -150,12 +151,14 @@ pfw apply                            # lists them and asks
   and the one running stays in place.
 - **It swaps in at once.** The next packet meets the new policy. Connections
   already being tracked, and standing bans, carry over.
-- **A first policy that reassembles streams resets what is open on its
-  port.** Most of the public policies follow a connection from its start so
-  they can read a request split across packets. Going from no such policy to
-  one, connections already open on the guarded port are reset once, since
-  pfw joined them in the middle; clients reconnect. Swapping one such policy
-  for another, changing a knob, and traffic on other ports drop nothing.
+- **Open connections are followed from where it picks them up.** Most of the
+  public policies follow a connection so they can read a request split
+  across packets, and a connection already open when one is applied is
+  followed from its next segment. The exception is a policy that decodes
+  the stream (`decode h2` and the like): a decode cannot begin part-way, so
+  connections already open on its port are reset once, and clients
+  reconnect. Swapping policies, changing a knob, and traffic on other ports
+  drop nothing.
 - **Rule counts start from zero** for the new policy.
 - **It is remembered.** After a restart pfw comes back enforcing it.
 
@@ -163,7 +166,7 @@ pfw apply                            # lists them and asks
 
 ```sh
 pfw shadow        # on
-pfw unshadow      # off
+pfw enforce      # off
 ```
 
 In shadow mode the policy decides and counts exactly as usual, and every
@@ -177,7 +180,7 @@ pfw shadow
 pfw apply 2
 # ... let real traffic through ...
 pfw status
-pfw unshadow
+pfw enforce
 ```
 
 Shadow mode belongs to the firewall, not to a policy: it stays on across
@@ -189,7 +192,7 @@ A policy that blocks the wrong thing can block you. So the two commands that
 start blocking can be made to undo themselves:
 
 ```sh
-pfw unshadow --confirm 10m       # enforce, for ten minutes
+pfw enforce --confirm 10m       # enforce, for ten minutes
 pfw apply rules:http/crawlers.pfc --confirm 10m     # or a new policy, for ten minutes
 ```
 
@@ -227,8 +230,9 @@ pfw rollback
 With a trial pending, it undoes the trial. Otherwise it puts back **the
 policy that was in place before this one**, with the knobs you had set for
 it, and the one it replaced becomes the one before, so a second `rollback`
-returns. After a `clear`, it puts the cleared policy back. The policy before
-is remembered across restarts.
+returns. After a `clear`, it puts the cleared policy back. With several
+policies in place it is the last change that is undone, whichever place it
+was in. What was before is remembered across restarts.
 
 It changes the policy only: interfaces and knobs stay as they are.
 
@@ -238,10 +242,13 @@ It changes the policy only: interfaces and knobs stay as they are.
 pfw clear
 ```
 
-Removes the policy. Everything passes, pfw stays attached and keeps counting
-packets. This is the fast way out when a policy is blocking something it
-should not. Bans already in place still stand until they expire.
-`pfw rollback` puts the policy back.
+Removes every policy. Everything passes, pfw stays attached and keeps
+counting packets. This is the fast way out when a policy is blocking
+something it should not. Bans already in place still stand until they
+expire. `pfw rollback` puts back what was cleared.
+
+`pfw clear` with a place (`--port 8443`, `--first`, `--default`) removes
+only what is there.
 
 ## The states pfw can be in
 
@@ -261,8 +268,8 @@ stateDiagram-v2
 
     Passing --> Shadow: pfw shadow, then pfw apply
     Passing --> Enforcing: pfw apply
-    Shadow --> Enforcing: pfw unshadow
-    Shadow --> Trial: pfw unshadow --confirm 10m
+    Shadow --> Enforcing: pfw enforce
+    Shadow --> Trial: pfw enforce --confirm 10m
     Trial --> Enforcing: pfw confirm
     Trial --> Shadow: the deadline passes, or pfw rollback
     Enforcing --> Shadow: pfw shadow
@@ -278,7 +285,68 @@ stateDiagram-v2
 ```
 <!-- /diagram -->
 
-## More than one policy at once
+## Several policies at once
 
-Not today. `apply` replaces what is running. To combine two policies, their
-rules have to be written into one file.
+`pfw apply POLICY` makes a policy the **default**: every packet runs it. To
+run another beside it, say which packets the other is for.
+
+```sh
+pfw apply rules:http/waf.pfc                        # the default
+pfw apply rules:http/api.pfc --port 8443            # tcp port 8443 has its own
+pfw apply rules:dns/guard.pfc --port udp/53         # and so does DNS
+pfw apply rules:tenant.pfc --dst 10.1.0.0/16        # a destination prefix
+pfw apply rules:ssh.pfc --dst 10.1.2.3 --port 22    # one address, one port
+pfw apply rules:edge.pfc --iface eth1               # what arrives on one interface
+```
+
+Each of those is a **route**: a policy, and the packets it is for.
+
+- **A packet runs one policy.** A routed packet runs its route's policy
+  **in place of** the default, not after it. The default is for whatever no
+  route claims, and with no default those packets pass.
+- **The more specific route wins.** The longest `--dst` prefix the packet's
+  destination is in decides first; a route with no `--dst` is the shortest
+  of all. Between routes with the same prefix, one that names a port wins,
+  then a protocol, then an interface.
+- **Applying to a route again swaps its policy**, as `apply` does the
+  default's. `pfw clear --port 8443` removes that route, and its packets go
+  back to whatever else claims them.
+- **A route by interface needs pfw attached to it**, and the interface
+  cannot be detached while a route names it.
+
+### Policies that run first
+
+```sh
+pfw apply rules:net/blocklist.pfc --first
+pfw apply rules:net/flood.pfc --first
+```
+
+A policy applied with `--first` runs on **every** packet, before the
+packet's own policy: a blocklist ahead of each port's rules. It blocks the
+packet, or passes it on. Up to eight run, in the order you applied them.
+Applying one that is already in the chain replaces it where it stands;
+`pfw clear --first` removes them all.
+
+A policy run first sees packets as they arrive. It cannot follow a stream,
+so one that says `reassemble` or `decode`, or rewrites what it reads, is
+refused there: give it a route, or make it the default.
+
+### What they share
+
+- **Shadow mode, a trial and `rollback` are the firewall's.** `pfw shadow`
+  rehearses every policy; `--confirm` works on any `apply`.
+- **Knobs are not shared.** Two policies in place that both read `port`
+  each have their own value. A policy in more than one place has one set of
+  knobs for all of them. See [Knobs](knobs.md).
+- **Bans stand whatever policy a packet would run.**
+- **Each has its own rules and counts.** `pfw status` and `pfw metrics` say
+  whose a rule is, as `crawler (tcp/8443)`.
+
+```
+● pfw  up 3d 4h   on eth0
+  policy   rules:http/waf.pfc @ b58a001   enforcing   applied 2h ago
+  first    rules:net/blocklist.pfc @ b58a001   enforcing   applied 2h ago
+  route    tcp/8443  rules:http/api.pfc @ b58a001   enforcing   applied 5m ago
+```
+
+At most 64 policies are in place at once.

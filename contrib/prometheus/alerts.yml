@@ -50,7 +50,7 @@ groups:
           severity: warning
         annotations:
           summary: pfw has been in shadow mode for a day on {{ $labels.instance }}
-          description: The policy decides and counts, and blocks nothing. `pfw unshadow --confirm 10m` enforces it on trial.
+          description: The policy decides and counts, and blocks nothing. `pfw enforce --confirm 10m` enforces it on trial.
 
       - alert: PfwTrialPending
         expr: pfw_trial_pending == 1

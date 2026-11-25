@@ -2,6 +2,8 @@
  * sampling it: a sample a second, the last minute of them kept, and a rate
  * is the difference between two samples over the time between them.
  */
+import { ruleCounts } from "#/fw/counted.js";
+
 export const WINDOW = 60;
 
 // The counters a speed is worth knowing for, by the name it is shown under.
@@ -9,8 +11,7 @@ const SPEEDS = {
   packets: (s) => s.seen,
   passed: (s) => s.passed,
   // Every blocked packet is in one of these two. The engine's `bans` is not
-  // a third kind: it counts the verdicts left standing, on packets these
-  // already count.
+  // a third kind: a ban's packet is a drop, and is counted as one.
   blocked: (s) => (s.dropped ?? 0n) + (s.rsts ?? 0n),
   "would block": (s) => s.shadowed,
   scanned: (s) => s.scanned_bytes,
@@ -20,7 +21,7 @@ const SPEEDS = {
 const num = (v) => Number(v ?? 0);
 
 export class Rates {
-  // { at, values: { name -> count }, rules: { rule -> hits } }, oldest first
+  // { at, values: { name -> count }, rules: { rule id -> hits } }, oldest first
   #samples = [];
 
   /* A counter that went down means the VM behind it is a new one: the
@@ -28,7 +29,7 @@ export class Rates {
    */
   push(stats, at) {
     const values = Object.fromEntries(Object.entries(SPEEDS).map(([name, read]) => [name, num(read(stats))]));
-    const rules = Object.fromEntries(Object.entries(stats.rules ?? {}).map(([rule, hits]) => [rule, num(hits)]));
+    const rules = Object.fromEntries(ruleCounts(stats).map((rule) => [rule.id, rule.hits]));
 
     const last = this.#samples.at(-1);
     if (last && Object.keys(values).some((name) => values[name] < last.values[name])) this.#samples = [];
@@ -63,7 +64,7 @@ export class Rates {
     }));
   }
 
-  // Hits per second by rule, over the window.
+  // Hits per second over the window, by a rule's `id` in `ruleCounts`.
   ruleSpeeds() {
     const samples = this.#samples;
     if (samples.length < 2) return {};

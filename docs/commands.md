@@ -11,6 +11,21 @@ A **POLICY** is its number in `pfw ls`, or `name:path`
 
 A **TIME** is a number and `s`, `m` or `h`: `90s`, `10m`, `1h`.
 
+A **PLACE** is where a policy goes when several are in place at once. With
+none named it is the default: for every packet no route claims.
+
+| flag | the place |
+|---|---|
+| `--port [PROTO/]PORT` | a route: the packets to that port. `tcp` unless said: `--port 8443`, `--port udp/53` |
+| `--proto PROTO` | a route: `tcp`, `udp`, or a protocol's number |
+| `--dst ADDRESS[/LEN]` | a route: the packets to that address or prefix, IPv4 or IPv6 |
+| `--iface IFACE` | a route: the packets arriving on that interface, which pfw must be attached to |
+| `--first` | on every packet, before its own policy |
+| `--default` | the default, for `pfw clear` to clear it alone |
+
+The route flags combine into one route: `--dst 10.1.2.3 --port 22`. See
+[Several policies at once](policies.md#several-policies-at-once).
+
 Commands marked **saved** record what they changed, so a restart comes back
 to it.
 
@@ -33,7 +48,7 @@ knobs and shadow mode. Counters, tracked connections and bans start over.
 
 ### `pfw status`
 
-Whether it is up, the interfaces, the policy in place, the knobs you have
+Whether it is up, the interfaces, the policies in place, the knobs you have
 set, packet counts by verdict, and the busiest rules. Exits non-zero when the
 firewall is down or does not answer.
 
@@ -156,19 +171,32 @@ command.
 
 The same, from a file.
 
+### `pfw apply POLICY PLACE` — saved
+
+Puts the policy in a place of its own, beside the ones in the other places.
+On a route it replaces the policy that route had. With `--first` it joins
+the end of the chain run first, or replaces itself there if it is already
+in it.
+
 ### `pfw clear` — saved
 
-Removes the policy. Everything passes.
+Removes every policy. Everything passes.
+
+### `pfw clear PLACE` — saved
+
+Removes what is in that place: one route's policy, the whole chain run
+first, or with `--default` the default. The other policies go on. Fails
+when nothing is there.
 
 ### `pfw shadow` — saved
 
 Turns on the dry run: verdicts are counted, nothing is blocked.
 
-### `pfw unshadow` — saved
+### `pfw enforce` — saved
 
 Turns it off: verdicts are enforced.
 
-### `pfw unshadow --confirm [TIME]`, `pfw apply POLICY --confirm [TIME]`
+### `pfw enforce --confirm [TIME]`, `pfw apply POLICY --confirm [TIME]`
 
 The same, **on trial**: the change is made now and undone after `TIME`
 (`10m` when left out) unless `pfw confirm` comes first. What is saved is
@@ -180,8 +208,9 @@ Keeps what is on trial. Fails when nothing is.
 
 ### `pfw rollback` — saved
 
-With a trial pending, undoes it now. Otherwise puts back the policy that was
-in place before this one; a second `rollback` returns.
+With a trial pending, undoes it now. Otherwise puts back the policies as
+they were before the last change, each in its place; a second `rollback`
+returns.
 
 See [On trial](policies.md#on-trial).
 
@@ -190,12 +219,13 @@ See [On trial](policies.md#on-trial).
 ### `pfw knob ls [POLICY]`
 
 The knobs of a policy: what each holds, whether you set it, what it is for.
-Without `POLICY`, the policy in place.
+Without `POLICY`, every policy in place, each with where it is.
 
 ### `pfw knob set [POLICY] NAME VALUE` — saved
 
-Sets a knob for that policy. On the policy in place it takes effect on the
-next packet.
+Sets a knob for that policy. On a policy in place it takes effect on the
+next packet. Without `POLICY`, it is the policy in place that has a knob of
+that name; when several do, name one.
 
 ### `pfw knob unset [POLICY] NAME` — saved
 

@@ -10,10 +10,13 @@
  *                               and which to attach to
  *   attach <name>[,<name>...]   attach to these interfaces as well
  *   detach <name>[,<name>...]   let go of these interfaces
- *   apply [confirm=<time>]      compile its one source and enforce it
- *   clear                       stop enforcing, and pass everything
+ *   apply [confirm=<time>] [at=<place>]
+ *                               compile its one source and enforce it: as
+ *                               the default, or at a place of its own
+ *   clear [at=<place>]          stop enforcing, and pass everything; or
+ *                               only what is at one place
  *   shadow                      dry run: decide and count, block nothing
- *   unshadow [confirm=<time>]   enforce again
+ *   enforce [confirm=<time>]    shadow mode off: verdicts are real again
  *   confirm                     keep what is on trial
  *   rollback                    undo the trial, or go back to the policy before
  *
@@ -26,15 +29,18 @@
  *   knob-unset <knob>           back to the policy's default
  *   saved                       the firewall's state, as a module to keep
  *
- * The knob commands are about their one source when they carry one, else
- * the policy enforcing.
+ * A place is the default, the chain run first, or a route
+ * (src/fw/place.js). The knob commands are about their one source when
+ * they carry one. Without it, `knobs` lists every policy in place, and the
+ * other two mean the one in place that has the knob.
  */
 import { listInterfaces, resolveInterfaces } from "#/fw/interfaces.js";
 import { parseMeta } from "#/fw/meta.js";
+import { DEFAULT, parsePlace } from "#/fw/place.js";
 import { Policy, PolicyError } from "#/fw/policy.js";
 import { parseSpan } from "#/fw/trial.js";
 import { duration } from "#/ctl/render/format.js";
-import { confirmOf } from "#/ctl/request.js";
+import { atOf, confirmOf } from "#/ctl/request.js";
 import { isFiltering, parseFilters, select } from "#/ctl/select.js";
 
 const statusOf = async (firewall, notice) => {
@@ -58,6 +64,15 @@ async function onTrial(firewall, rest, change, notice) {
   return statusOf(firewall, `${notice}, on trial: undone in ${duration(ms)} unless you run pfw confirm`);
 }
 
+// The place a header names, or null when it names none.
+function placeOf(firewall, rest) {
+  const at = atOf(rest);
+  return at === null ? null : parsePlace(at, firewall.interfaces);
+}
+
+// Where a policy went, for the notice: nothing for the default.
+const where = (place) => ({ default: "", first: " to run first", route: ` for ${place.label}` })[place.kind];
+
 // The interfaces a header names, which must be at least one.
 function named(rest) {
   const names = rest.split(",").map((s) => s.trim()).filter(Boolean);
@@ -80,27 +95,50 @@ function checked(firewall, { name, source }) {
 /* A policy as its opening comments describe it, not compiled: what `pfw ls`
  * shows unless it is asked to check. Reading the comments of twenty policies
  * takes no time; compiling them takes seconds. The knobs are the ones the
- * comments name, with what each is for and no value, except for the policy in
- * force, whose values the firewall already holds.
+ * comments name, with what each is for and no value, except for a policy in
+ * place, whose values the firewall already holds.
  */
 function listed(firewall, { name, source }) {
   const meta = parseMeta(source);
-  const knobs = firewall.policy?.name === name
-    ? firewall.knobs.of(firewall.policy)
+  const inPlace = firewall.inPlace.find((policy) => policy.name === name);
+  const knobs = inPlace
+    ? firewall.knobs.of(inPlace)
     : Object.entries(meta.knobs ?? {}).map(([knob, about]) => ({ name: knob, about, set: false, unread: true }));
   return { name, ok: true, checked: false, rules: [], errors: [], meta, knobs };
 }
 
-// The policy a knob command is about, and its arguments past the count.
-function knobRequest(firewall, { rest, sources: [given] }) {
-  const policy = given ? new Policy(given.name, given.source) : firewall.knobTarget;
-  return { policy, args: rest.replace(/^[01] ?/, "") };
+/* The policy in place a knob named with no policy belongs to. One policy in
+ * place is the one meant, and says what it has if the knob is not among
+ * them; with several, the knob has to be one policy's alone.
+ */
+function ownerOf(firewall, knob) {
+  const inPlace = firewall.inPlace;
+  if (inPlace.length === 0) throw new Error("No policy is enforcing: name one");
+  if (inPlace.length === 1) return inPlace[0];
+
+  const having = inPlace.filter((policy) => policy.knobs.some((k) => k.name === knob));
+  if (having.length === 1) return having[0];
+  if (having.length === 0) throw new Error(`No policy in place has a knob ${knob || "of that name"} (pfw knob ls)`);
+  throw new Error(`${knob} is a knob of ${having.map((policy) => policy.key).join(" and ")}: name one`);
 }
 
-function knobsOf(firewall, policy, notice) {
-  const key = policy.key;
-  const state = firewall.policy?.key === key ? "enforcing" : "other";
-  return { view: "knobs", ok: true, notice, data: { policy: policy.name, state, knobs: firewall.knobs.of(policy) } };
+// The policy a knob command is about, and its arguments past the count.
+function knobRequest(firewall, { rest, sources: [given] }) {
+  const args = rest.replace(/^[01] ?/, "");
+  const policy = given ? new Policy(given.name, given.source) : ownerOf(firewall, args.split(" ")[0]);
+  return { policy, args };
+}
+
+// A policy's knobs, and the places it is in.
+function knobsData(firewall, policy) {
+  const at = firewall.rules.entries().filter((entry) => entry.policy.key === policy.key).map((entry) => entry.at);
+  return { policy: policy.name, state: at.length > 0 ? "enforcing" : "other", at, knobs: firewall.knobs.of(policy) };
+}
+
+// `policies` is every policy listed; the first is also the reply's own fields.
+function knobsOf(firewall, policies, notice) {
+  const each = policies.map((policy) => knobsData(firewall, policy));
+  return { view: "knobs", ok: true, notice, data: { ...each[0], policies: each } };
 }
 
 export const commands = {
@@ -158,17 +196,23 @@ export const commands = {
     return statusOf(firewall, `detached from ${dropped.join(", ")}`);
   },
 
-  async clear(firewall) {
-    const cleared = firewall.policy;
-    if (!cleared) throw new Error("No policy is enforcing");
-    await firewall.clear();
-    return statusOf(firewall, `cleared ${cleared.name}: passing everything`);
+  // Every place, or the one named: the others go on as they were.
+  async clear(firewall, { rest }) {
+    const place = placeOf(firewall, rest);
+    const cleared = [...new Set(firewall.rules.entries().filter((entry) => place === null || entry.place.spec === place.spec).map((entry) => entry.policy.name))];
+    if (cleared.length === 0) throw new Error(place ? `No policy is in place at ${place.label}` : "No policy is enforcing");
+
+    await firewall.clear(place);
+    const still = firewall.rules.entries().length;
+    const left = still === 0 ? "passing everything" : still === 1 ? "1 policy is still in place" : `${still} policies are still in place`;
+    return statusOf(firewall, `cleared ${cleared.join(", ")}: ${left}`);
   },
 
-  // Compiled first: one that does not compile leaves the running policy alone.
+  // Compiled first: one that does not compile leaves the running policies alone.
   apply(firewall, { rest, sources: [{ name, source }] }) {
+    const place = placeOf(firewall, rest) ?? DEFAULT;
     const policy = new Policy(name, source);
-    return onTrial(firewall, rest, () => firewall.enforce(policy), `applied ${name}`);
+    return onTrial(firewall, rest, () => firewall.enforce(policy, place), `applied ${name}${where(place)}`);
   },
 
   async shadow(firewall) {
@@ -176,7 +220,7 @@ export const commands = {
     return statusOf(firewall, "shadow mode on: verdicts are counted, nothing is blocked");
   },
 
-  unshadow: (firewall, { rest }) =>
+  enforce: (firewall, { rest }) =>
     onTrial(firewall, rest, () => firewall.setShadow(false), "shadow mode off: verdicts are enforced"),
 
   confirm(firewall) {
@@ -187,12 +231,15 @@ export const commands = {
   async rollback(firewall) {
     const undoing = firewall.trial.pending;
     await firewall.rollback();
-    const now = firewall.policy?.name ?? "no policy: passing everything";
+    const now = [...new Set(firewall.rules.entries().map((entry) => entry.policy.name))].join(", ") || "no policy: passing everything";
     return statusOf(firewall, undoing ? `rolled back the trial: ${now}` : `rolled back to ${now}`);
   },
 
-  knobs(firewall, request) {
-    return knobsOf(firewall, knobRequest(firewall, request).policy);
+  // The policy it carries, else every one in place.
+  knobs(firewall, { sources: [given] }) {
+    if (given) return knobsOf(firewall, [new Policy(given.name, given.source)]);
+    if (firewall.inPlace.length === 0) throw new Error("No policy is enforcing: name one");
+    return knobsOf(firewall, firewall.inPlace);
   },
 
   async "knob-set"(firewall, request) {
@@ -200,14 +247,14 @@ export const commands = {
     const [, name, value] = args.match(/^(\S+) (.*)$/s) ?? [];
     if (!name) throw new Error("Usage: knob set [POLICY] NAME VALUE");
     await firewall.setKnob(policy, name, value);
-    return knobsOf(firewall, policy, `${name} = ${value} for ${policy.key}`);
+    return knobsOf(firewall, [policy], `${name} = ${value} for ${policy.key}`);
   },
 
   async "knob-unset"(firewall, request) {
     const { policy, args: name } = knobRequest(firewall, request);
     if (!name) throw new Error("Usage: knob unset [POLICY] NAME");
     await firewall.unsetKnob(policy, name);
-    return knobsOf(firewall, policy, `${name} is back to its default for ${policy.key}`);
+    return knobsOf(firewall, [policy], `${name} is back to its default for ${policy.key}`);
   },
 
   /* Every source is numbered; the filters after the count then choose which
@@ -225,7 +272,10 @@ export const commands = {
     return {
       view: "catalog",
       ok: entries.every((e) => e.ok),
-      data: { entries, total: all.length, filtered: isFiltering(filters), active: firewall.policy?.name ?? null, checked: compiling },
+      data: { entries, total: all.length, filtered: isFiltering(filters), active: firewall.rules.entries().map((entry) => entry.policy.name), checked: compiling },
     };
   },
 };
+
+// What `enforce` was called before, kept for a `pfw` that still says it.
+commands.unshadow = commands.enforce;

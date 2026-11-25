@@ -30,7 +30,7 @@ pfw status
 ```
 ● pfw  up 12s   on lo
   policy   none: passing everything
-  packets  48 seen   pass 0   drop 0   rst 0   cut off 0
+  packets  48 seen   pass 0   drop 0   rst 0   ban 0
 ```
 
 - **`up`** and the green dot: the firewall is running.
@@ -116,7 +116,7 @@ pfw status
 ```
 ● pfw  up 4m 10s   on eth0   shadow mode: nothing is blocked
   policy   rules:http/crawlers.pfc @ b58a001   shadow (dry run)   applied 2m ago
-  packets  1.9k seen   pass 1.9k   drop 0   rst 0   cut off 0   would block 37
+  packets  1.9k seen   pass 1.9k   drop 0   rst 0   ban 0   would block 37
   rules    crawler 37
 ```
 
@@ -129,7 +129,7 @@ another policy, or [change a knob](knobs.md), and look again.
 ## 5. Enforce it
 
 ```sh
-pfw unshadow --confirm 10m
+pfw enforce --confirm 10m
 ```
 
 From the next packet, the policy is real, **on trial for ten minutes**.
@@ -148,7 +148,7 @@ pfw confirm
 
 If you do nothing, or cannot, the ten minutes run out and the policy goes
 back to rehearsing by itself. That is the point: a policy that cuts you off
-does not keep you off. Plain `pfw unshadow` enforces with no trial.
+does not keep you off. Plain `pfw enforce` does it with no trial.
 
 ## 6. Watch it work
 
@@ -164,7 +164,7 @@ every box.
 
 That is all of it:
 
-**pull → list → shadow → apply → check → unshadow on trial → confirm**
+**pull → list → shadow → apply → check → enforce on trial → confirm**
 
 <!-- diagram: workflow -->
 ```mermaid
@@ -177,8 +177,8 @@ flowchart TD
     knob --> shadow["pfw shadow<br/>pfw apply"]
     shadow --> check{"would block<br/>looks right?"}
     check -->|"no"| ls
-    check -->|"yes"| unshadow["pfw unshadow --confirm 10m"]
-    unshadow --> works{"site and login<br/>still work?"}
+    check -->|"yes"| enforce["pfw enforce --confirm 10m"]
+    enforce --> works{"site and login<br/>still work?"}
     works -->|"yes"| confirm["pfw confirm"]
     works -.->|"no: do nothing,<br/>it goes back by itself"| shadow
     confirm --> watch["pfw status<br/>pfw metrics"]
@@ -189,7 +189,7 @@ flowchart TD
     classDef dry fill:#422006,stroke:#facc15,color:#fefce8
     classDef live fill:#052e16,stroke:#4ade80,color:#f0fdf4
     classDef out fill:#450a0a,stroke:#f87171,color:#fef2f2
-    class shadow,check,unshadow,works dry
+    class shadow,check,enforce,works dry
     class confirm,watch live
     class clear out
 ```

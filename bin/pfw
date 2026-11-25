@@ -29,11 +29,13 @@
 #
 #   pfw apply [POLICY]         compile one policy and enforce it (`load` is the same)
 #   pfw apply -f FILE          the same, from a local file
+#   pfw apply POLICY PLACE     the same, beside the others: for some packets, or first
 #   pfw clear                  stop enforcing: everything passes
+#   pfw clear PLACE            only what is there; the other policies go on
 #   pfw shadow                 dry run: verdicts are counted, nothing is blocked
-#   pfw unshadow               enforce again
+#   pfw enforce                shadow mode off: verdicts are real again
 #   pfw apply POLICY --confirm [TIME]   the same, on trial: undone after TIME (10m)
-#   pfw unshadow --confirm [TIME]          unless `pfw confirm` comes first
+#   pfw enforce --confirm [TIME]           unless `pfw confirm` comes first
 #   pfw confirm                keep what is on trial
 #   pfw rollback               undo the trial now; with none, back to the policy before
 #
@@ -41,9 +43,25 @@
 #   pfw knob set [POLICY] NAME VALUE   set one, for that policy
 #   pfw knob unset [POLICY] NAME       back to the policy's default
 #
-# A knob is a value a policy reads, like a port, and is set per policy.
-# Without POLICY, the knob commands mean the enforcing policy, whose knobs
-# change at once, with no reload.
+# A knob is a value a policy reads, like a port, and is set per policy: two
+# policies that both read `port` each have their own. On a policy in place a
+# knob changes at once, with no reload. Without POLICY, `knob ls` lists every
+# policy in place, and `set` and `unset` mean the one in place that has the
+# knob; when several have it, name one.
+#
+# Several policies can be in place at once, each in a PLACE of its own. With
+# none named, a policy is the default: for every packet no route claims.
+#
+#   --port [PROTO/]PORT   a route: the packets to that port (tcp unless said)
+#   --proto PROTO         a route: tcp, udp, or a protocol's number
+#   --dst ADDRESS[/LEN]   a route: the packets to that address or prefix
+#   --iface IFACE         a route: the packets arriving on that interface
+#   --first               on every packet, before its own policy: a chain, in
+#                           the order applied, each passing on what it lets by
+#   --default             the default, for `pfw clear` to clear it alone
+#
+# The route flags combine into one route. Where two routes claim a packet,
+# the longest --dst prefix wins, then a port, a protocol, an interface.
 #
 # URL is anything `git clone` takes. REF is a branch, tag or commit: the
 # remote's default branch when left out. POLICY is NAME:PATH, a bare PATH
@@ -196,17 +214,27 @@ help() {
 	say "$(label 'policy')"
 	row name 'pfw apply [POLICY]' 'compile one policy and enforce it (load is the same)'
 	row name 'pfw apply -f FILE' 'the same, from a local file'
+	row name 'pfw apply POLICY PLACE' 'the same, beside the others: for some packets, or first'
 	row name 'pfw clear' 'stop enforcing: everything passes'
+	row name 'pfw clear PLACE' 'only what is there; the other policies go on'
 	row name 'pfw shadow' 'dry run: verdicts are counted, nothing is blocked'
-	row name 'pfw unshadow' 'enforce again'
-	row name '  --confirm [TIME]' 'apply or unshadow on trial: undone after TIME (10m) unless confirmed'
+	row name 'pfw enforce' 'shadow mode off: verdicts are real again'
+	row name '  --confirm [TIME]' 'apply or enforce on trial: undone after TIME (10m) unless confirmed'
 	row name 'pfw confirm' 'keep what is on trial'
 	row name 'pfw rollback' 'undo the trial now; with none, back to the policy before'
 	say
-	say "$(label 'knobs')  $(note 'values a policy reads, like a port; POLICY defaults to the one enforcing')"
+	say "$(label 'knobs')  $(note 'values a policy reads, like a port; without POLICY, the one in place that has the knob')"
 	row name 'pfw knob ls [POLICY]' "a policy's knobs, and what each holds"
 	row name 'pfw knob set [POLICY] NAME VALUE' 'set one, for that policy; live if it is enforcing'
 	row name 'pfw knob unset [POLICY] NAME' "back to the policy's default"
+	say
+	say "$(label 'places')  $(note 'several policies at once, each in its own; with none named, the default')"
+	row value '--port [PROTO/]PORT' 'a route: the packets to that port (tcp unless said)'
+	row value '--proto PROTO' "a route: tcp, udp, or a protocol's number"
+	row value '--dst ADDRESS[/LEN]' 'a route: the packets to that address or prefix'
+	row value '--iface IFACE' 'a route: the packets arriving on that interface'
+	row value '--first' 'on every packet, before its own policy: a chain, in order'
+	row value '--default' 'the default, for pfw clear to clear it alone'
 	say
 	say "$(label 'settings')"
 	row name 'pfw config ls' 'every setting, its value and where it came from'
@@ -585,10 +613,23 @@ apply() {
 	fi
 
 	{
-		printf '@%s apply %s' "$format" "${trial:+confirm=$trial }"
+		printf '@%s apply %s%s' "$format" "${trial:+confirm=$trial }" "${at:+at=$at }"
 		policy_frame "$source" "$policy"
 	} | send
 	save
+}
+
+# One part of a route onto $at, as the service reads a place
+# (src/fw/place.js): the parts of one route, with commas between.
+route_part() {
+	case $at in first | default) die "a place is --$at or a route, not both" ;; esac
+	case $2 in '' | *[\ ,]*) die "pfw $verb $1 takes one value" ;; esac
+	case $1 in
+	--port) case $2 in */*) part=$2 ;; *) part=tcp/$2 ;; esac ;;
+	--iface) part=if=$2 ;;
+	*) part=$2 ;;
+	esac
+	at=${at:+$at,}$part
 }
 
 # ---- knobs ------------------------------------------------------------------
@@ -898,7 +939,7 @@ kernel_at_least() {
 # not a pipe: a pipe would run `dial` in a subshell and lose the reply.
 query() {
 	dial <<-ASK
-		@plain $1
+		@${2:-plain} $1
 	ASK
 }
 
@@ -1029,17 +1070,16 @@ doctor() {
 		*'none: passing everything'*) warned 'policy' 'none is enforcing: everything passes' 'pfw ls, then pfw apply POLICY' ;;
 		*) good 'policy' "$(printf '%s\n' "$reply" | sed -n '2s/^ *policy *//p' | sed 's/   .*//')" ;;
 		esac
-		case $reply in *'shadow mode'*) warned 'shadow' 'on: verdicts are counted, nothing is blocked' 'pfw unshadow enforces' ;; esac
-		# The engine reads 2 KB of a segment, and loopback sends up to 64 KB at once.
-		case $reply in
-		*'none: passing everything'*) ;;
-		*)
-			if printf '%s\n' "$reply" | sed -n '1s/.*   on //p' | sed 's/   shadow.*//' | tr ',' '\n' | tr -d ' ' | grep -qx lo; then
-				warned 'loopback' 'a policy on lo reads only the first 2 KB of each segment' 'a segment there can be 64 KB, so a padded request passes unread: attach to the interface traffic arrives on'
-			fi
-			;;
-		esac
-		case $reply in *'  unread '*) failed 'unread' 'segments larger than the engine reads have passed partly uninspected' 'a policy that looks for text can be walked past: move it off lo, onto the interface traffic arrives on' ;; esac
+		case $reply in *'shadow mode'*) warned 'shadow' 'on: verdicts are counted, nothing is blocked' 'pfw enforce turns it off' ;; esac
+		# A policy that follows a stream reads every byte of it. One that does
+		# not reads 4 KB of a packet, and loopback sends up to 64 KB at once.
+		if printf '%s\n' "$reply" | sed -n '1s/.*   on //p' | sed 's/   shadow.*//' | tr ',' '\n' | tr -d ' ' | grep -qx lo &&
+			query status json; then
+			case $reply in *'"streams":false'*)
+				warned 'loopback' 'a policy on lo that does not reassemble reads only the first 4 KB of each segment' 'a segment there can be 64 KB, so a padded request passes unread: attach to the interface traffic arrives on, or use a policy that says reassemble'
+				;;
+			esac
+		fi
 
 		if query saved; then
 			reply=${reply#*"
@@ -1283,7 +1323,7 @@ setup() {
 	say "$(ok '✔') $(strong "$from:$path is rehearsing on $wanted: it decides and counts, and blocks nothing")"
 	say "  $(label 'next')   $(note 'let real traffic through for a while, then')"
 	say "         $(name 'pfw status')                   $(note 'would block N is what it would have stopped')"
-	say "         $(name 'pfw unshadow --confirm 10m')   $(note 'enforce it, on trial')"
+	say "         $(name 'pfw enforce --confirm 10m')   $(note 'enforce it, on trial')"
 	say "         $(name 'pfw confirm')                  $(note 'keep it, once your site and your login still work')"
 }
 
@@ -1424,7 +1464,7 @@ __complete() {
 	done
 	if [ $# -le 1 ]; then
 		offer up down restart status doctor setup logs metrics upgrade uninstall \
-			interfaces attach detach remote pull ls apply clear shadow unshadow \
+			interfaces attach detach remote pull ls apply clear shadow enforce \
 			confirm rollback knob config version help --json --color --no-color --help --version
 		return
 	fi
@@ -1449,15 +1489,25 @@ __complete() {
 		;;
 	apply | load)
 		case $prev in
-		-f) ;;
+		-f | --port | --dst) ;;
+		--iface) from_service attached ;;
+		--proto) offer tcp udp ;;
 		*)
 			[ "$prev" != --confirm ] || offer 5m 10m 30m 1h
 			offer_policies
-			offer --confirm -f
+			offer --confirm -f --first --port --proto --dst --iface
 			;;
 		esac
 		;;
-	unshadow) if [ "$prev" = --confirm ]; then offer 5m 10m 30m 1h; else offer --confirm; fi ;;
+	clear)
+		case $prev in
+		--iface) from_service attached ;;
+		--proto) offer tcp udp ;;
+		--port | --dst) ;;
+		*) offer --default --first --port --proto --dst --iface ;;
+		esac
+		;;
+	enforce) if [ "$prev" = --confirm ]; then offer 5m 10m 30m 1h; else offer --confirm; fi ;;
 	remote)
 		case $#:$1 in
 		1:*) offer add ls rm ;;
@@ -1507,6 +1557,8 @@ fi
 [ $# -ge 1 ] || usage
 verb=$1
 shift
+# What `enforce` was called before, kept for the scripts that still say it.
+[ "$verb" != unshadow ] || verb=enforce
 
 if [ "$verb" = config ]; then
 	config "$@"
@@ -1549,9 +1601,9 @@ setup | upgrade | uninstall | __complete)
 	;;
 esac
 
-# `-f FILE` and `--confirm [TIME]`, wherever they stand; the rest are the
-# command's own arguments.
-file='' trial=''
+# `-f FILE`, `--confirm [TIME]` and a place, wherever they stand; the rest
+# are the command's own arguments.
+file='' trial='' at=''
 left=$#
 while [ "$left" -gt 0 ]; do
 	arg=$1
@@ -1564,6 +1616,17 @@ while [ "$left" -gt 0 ]; do
 		shift
 		left=$((left - 1))
 		;;
+	--first | --default)
+		[ -z "$at" ] || die "a place is --first, --default or a route, and one at a time"
+		at=${arg#--}
+		;;
+	--port | --proto | --dst | --iface)
+		[ "$left" -gt 0 ] || die "pfw $verb $arg takes a value"
+		route_part "$arg" "$1"
+		shift
+		left=$((left - 1))
+		;;
+	--port=* | --proto=* | --dst=* | --iface=*) route_part "${arg%%=*}" "${arg#*=}" ;;
 	--confirm=*) trial=${arg#*=} ;;
 	--confirm)
 		trial=10m
@@ -1582,8 +1645,12 @@ while [ "$left" -gt 0 ]; do
 	esac
 done
 case $verb in
-load | apply | unshadow) ;;
-*) [ -z "$trial" ] || die "--confirm goes with apply and unshadow, the two that start blocking" ;;
+load | apply | enforce) ;;
+*) [ -z "$trial" ] || die "--confirm goes with apply and enforce, the two that start blocking" ;;
+esac
+case $verb in
+load | apply | clear) ;;
+*) [ -z "$at" ] || die "a place (--first, --default, --port, --proto, --dst, --iface) goes with apply and clear" ;;
 esac
 
 case $verb in
@@ -1633,15 +1700,15 @@ load | apply)
 	;;
 clear)
 	[ $# -eq 0 ] || usage
-	change clear
+	change "clear${at:+ at=$at}"
 	;;
 shadow)
 	[ $# -eq 0 ] || usage
 	change shadow
 	;;
-unshadow)
+enforce)
 	[ $# -eq 0 ] || usage
-	change "unshadow${trial:+ confirm=$trial}"
+	change "enforce${trial:+ confirm=$trial}"
 	;;
 confirm | rollback)
 	[ $# -eq 0 ] || usage

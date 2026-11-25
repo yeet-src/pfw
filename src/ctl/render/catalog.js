@@ -65,11 +65,12 @@ function groupOf(name) {
 /* The list in groups, a heading a directory. The numbers are the policies'
  * places in the whole list, so they hold when the list is filtered.
  */
-export function catalog({ entries, active, total = entries.length, filtered = false, checked = true }, p) {
+export function catalog({ entries, active = [], total = entries.length, filtered = false, checked = true }, p) {
   if (total === 0) return p.warn("no policies: pfw remote add NAME URL, then pfw pull");
   if (entries.length === 0) return p.warn(`none of the ${total} policies match`);
 
-  const activeSource = active ? splitName(active).source : null;
+  // The names of the policies in place, by what stays the same across pulls.
+  const inPlace = new Map([active ?? []].flat().map((name) => [splitName(name).source, name]));
   const width = Math.max(...entries.map((e) => splitName(e.name).source.length));
   const digits = String(Math.max(...entries.map((e, i) => e.number ?? i + 1))).length;
   // Under the name: past the marker, the number and the tick.
@@ -89,13 +90,13 @@ export function catalog({ entries, active, total = entries.length, filtered = fa
     }
 
     const { source } = splitName(entry.name);
-    const isActive = source === activeSource;
+    const isActive = inPlace.has(source);
     lines.push([
       isActive ? p.ok("▸") : " ",
       p.label(String(entry.number ?? i + 1).padStart(digits)),
       entry.checked === false ? " " : entry.ok ? p.ok("✔") : p.bad("✘"),
       (isActive ? p.strong : p.name)(source.padEnd(width)),
-      ` ${detail(p, entry, isActive ? active : null)}`,
+      ` ${detail(p, entry, inPlace.get(source) ?? null)}`,
     ].join(" "));
     lines.push(...about(p, entry).map((line) => `${indent}${line}`));
   });

@@ -15,7 +15,7 @@ The crawler policy guards port 80 unless told otherwise:
 ## Seeing them
 
 ```sh
-pfw knob ls          # the policy in place
+pfw knob ls          # every policy in place
 pfw knob ls 2        # any policy, by number or name
 ```
 
@@ -27,8 +27,19 @@ knobs of rules:http/crawlers.pfc @ b58a001   enforcing
 Each line is a knob: its name, what it holds now, whether that is the
 policy's default or something you set, and what it is for.
 
+With [several policies in place](policies.md#several-policies-at-once),
+`pfw knob ls` lists each in turn, with the packets it is for:
+
+```
+knobs of rules:http/crawlers.pfc @ b58a001   enforcing
+  port  80    default            The port to guard.
+knobs of rules:http/api.pfc @ b58a001   enforcing   tcp/8443
+  port  8443  set, default 80    The port to guard.
+```
+
 `pfw ls` shows every policy's knobs under it, and `pfw status` shows the ones
-you have set on the policy in place.
+you have set on the policies in place, saying whose each is when there are
+several: `port 8443 (rules:http/api.pfc)`.
 
 ## Setting one
 
@@ -42,8 +53,23 @@ knobs of rules:http/crawlers.pfc @ b58a001   enforcing
   port  8080  set, default 80  The port to guard.
 ```
 
-On the policy in place, it takes effect **on the next packet**. Nothing is
+On a policy in place, it takes effect **on the next packet**. Nothing is
 reloaded, and counters and connections are untouched.
+
+With no policy named, it is the policy in place that has a knob of that
+name. When several have it, pfw asks you to say which:
+
+```sh
+pfw knob set port 8443
+```
+
+```
+✘ port is a knob of rules:http/crawlers.pfc and rules:http/api.pfc: name one
+```
+
+```sh
+pfw knob set rules:http/api.pfc port 8443
+```
 
 To set a knob on a policy before applying it, name the policy:
 
@@ -63,7 +89,10 @@ Back to the policy's own default.
 ## What to know
 
 - **A value belongs to the policy you set it for.** Two policies that both
-  have a `port` do not share one. Setting it on one leaves the other alone.
+  have a `port` do not share one, in place together or not. Setting it on
+  one leaves the other alone.
+- **A policy in several places has one set of knobs.** The same policy as
+  the default and on a route reads the same values in both.
 - **It follows the policy, not the version.** Pull a newer version of the
   same file and your value is still there.
 - **It is remembered** across restarts.

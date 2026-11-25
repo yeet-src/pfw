@@ -78,12 +78,12 @@ After I confirm:
    let it run through real traffic, and that you will check "would block"
    when I come back.
 
-Stop there. Do NOT run `pfw unshadow`. Enforcing is my decision, and I
+Stop there. Do NOT run `pfw enforce`. Enforcing is my decision, and I
 will ask for it separately.
 
 Rules:
 - Ask before every command that needs sudo.
-- Never run `pfw unshadow`, `pfw down`, or anything that edits
+- Never run `pfw enforce`, `pfw down`, or anything that edits
   service.toml, unless I ask in so many words.
 - If a command fails, show me the error and stop.
 - Use `pfw --json status` when you need to read values exactly.
@@ -98,9 +98,9 @@ plausible for the policy's description, and flag it if "would block" is 0
 or is more than a few percent of everything.
 
 If I then say to go ahead:
-1. Run `pfw unshadow --confirm 10m`. That enforces the policy on trial: the
+1. Run `pfw enforce --confirm 10m`. That enforces the policy on trial: the
    firewall undoes it by itself after ten minutes unless it is confirmed.
-   Never use plain `pfw unshadow`.
+   Never use plain `pfw enforce`.
 2. Immediately check: `pfw status`, and curl the local web service to
    confirm it still answers.
 3. Tell me to check my site and my own login from another terminal.
@@ -139,7 +139,7 @@ Then test it without affecting traffic:
    that was running is not touched by a failed apply.
 2. Show me `pfw status` and `pfw knob ls`.
 
-Do not run `pfw unshadow`. Explain the policy to me line by line, and tell
+Do not run `pfw enforce`. Explain the policy to me line by line, and tell
 me what traffic I should send to see "would block" go up.
 ```
 
@@ -236,11 +236,11 @@ How it works:
   `pfw ls` (a shortcut that shifts when the list changes: prefer the name).
 - A knob is a value a policy reads, such as a port: `pfw knob ls`,
   `pfw knob set NAME VALUE`. Knobs are per policy and change live.
-- Shadow mode (`pfw shadow` / `pfw unshadow`) is a dry run: verdicts are
+- Shadow mode (`pfw shadow` / `pfw enforce`) is a dry run: verdicts are
   counted as "would block" and nothing is blocked.
 - `pfw clear` removes the policy: everything passes, pfw stays up.
 - A change that starts blocking can be made on trial:
-  `pfw unshadow --confirm 10m` or `pfw apply POLICY --confirm 10m`. The
+  `pfw enforce --confirm 10m` or `pfw apply POLICY --confirm 10m`. The
   firewall undoes it at the deadline unless `pfw confirm` comes first.
   `pfw rollback` undoes a trial at once; with no trial, it returns to the
   policy before the current one.
@@ -272,9 +272,9 @@ Limits you must respect:
   the running policy is untouched.
 
 Safety rules for you:
-- Never run `pfw unshadow`, `pfw down`, or `pfw apply` outside shadow mode
+- Never run `pfw enforce`, `pfw down`, or `pfw apply` outside shadow mode
   without the user saying so explicitly.
-- Enforce only on trial: `pfw unshadow --confirm 10m`, and `pfw confirm`
+- Enforce only on trial: `pfw enforce --confirm 10m`, and `pfw confirm`
   only once the user says all is well.
 - If the user reports being blocked or locked out: `pfw rollback` or
   `pfw clear` first, questions after.
