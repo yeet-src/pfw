@@ -68,37 +68,39 @@ what you should see. For a machine with real traffic on it, follow
 
 ## How it works
 
-<!-- diagram: architecture -->
+<!-- diagram: how-it-works -->
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 flowchart TB
-    you(["you"]) -->|"pfw command"| ctl
-    prom(["Prometheus"]) -->|"scrape"| metrics
-    you -->|"pfw metrics"| ui
-
-    subgraph gateway["gateway: the web server, 127.0.0.1:9477"]
-        metrics["/metrics"]
-        ctl["/ctl"]
-        ui["/ui"]
+    subgraph author["you, or an agent"]
+        direction LR
+        write["<b>1</b> write a policy (.pfc)<br/>and cases: what it stops,<br/>what it lets through"]
+        pr["<b>2</b> open a pull request<br/>CI runs the cases,<br/>then you merge"]
+        write --> pr
     end
 
-    metrics --> scrape["scrape<br/>one isolate per request"]
-    ctl --> keeper["keeper<br/>always running"]
-    ui --> app["metrics app<br/>one isolate per viewer"]
+    remote("<b>git remote</b><br/>pfw-rules, or your own<br/>policies, commits, tags")
 
-    scrape --> firewall
-    keeper --> firewall
-    app --> firewall
+    subgraph host["your Linux host"]
+        pfw["<b>pfw: the command</b><br/><b>and its yeet service</b><br/><b>3</b> pfw pull: fetch,<br/>nothing running changes<br/><b>4</b> pfw shadow, pfw apply:<br/>compiled on the host,<br/>a mistake changes nothing"]
+        kernel["<b>kernel, 6.1 or newer</b><br/><b>5</b> pfw-core engine at XDP<br/>checked by Linux once<br/>a policy is new tables<br/>and one switch flipped<br/>each packet: pass, reset<br/>or drop, and counted"]
+        state["<b>saved state</b><br/><b>6</b> /var/lib/pfw/state.js<br/>restored after a reboot"]
+        pfw -->|"write tables"| kernel
+        pfw -->|"save"| state
+    end
 
-    firewall[["firewall: a shared worker<br/>policy, knobs, counters, saved state"]]
-    firewall --> engine["pfw-core engine<br/>at XDP, in the kernel"]
-    engine --- nic(["network interface"])
+    trial["<b>7</b> you, or an agent:<br/>pfw enforce --confirm 10m<br/>then pfw confirm,<br/>undone unless confirmed"]
 
-    classDef outside fill:#1f2937,stroke:#9ca3af,color:#f9fafb
-    classDef one fill:#3b0764,stroke:#c084fc,color:#faf5ff
-    classDef kernel fill:#052e16,stroke:#4ade80,color:#f0fdf4
-    class you,prom,nic outside
-    class firewall one
-    class engine kernel
+    author -->|"push"| remote
+    remote -->|"pull"| host
+    kernel -->|"would block N, per rule<br/>pfw status, pfw metrics"| trial
+
+    classDef step fill:#f6f5f1,stroke:#8c8c86,color:#1a1a1a
+    classDef yeet fill:#ffe500,stroke:#0d0d0d,color:#0d0d0d
+    class write,pr,remote,kernel,state,trial step
+    class pfw yeet
+    style author fill:none,stroke:#8c8c86
+    style host fill:none,stroke:#8c8c86,stroke-dasharray:6 5
 ```
 <!-- /diagram -->
 
@@ -118,6 +120,7 @@ runs your policy in the kernel, on the interfaces you attached it to. More in
 | [Using policies](docs/policies.md) | repositories, listing, applying, shadow mode |
 | [Knobs](docs/knobs.md) | changing a policy's values without editing it |
 | [Writing a policy](docs/writing-policies.md) | the language, by example |
+| [Existing rules](https://github.com/yeet-src/pfw-rules) | virtual patches ready to go (PHP2Shell, LiteLLM, Java4Shell, etc) |
 | [Metrics](docs/metrics.md) | the dashboard, and Prometheus |
 | [Configuration](docs/configuration.md) | pfw's settings, the service file, what is remembered |
 | [Security](docs/security.md) | who can reach pfw, and what they can do |
