@@ -47,6 +47,11 @@ on:
 permissions:
   contents: read
 
+# yeet's command line reports how it is used unless this is set, to anything.
+# CI is not a user: nothing here should be counted as one.
+env:
+  YEET_NO_ANALYTICS: 1
+
 concurrency:
   # Per ref. A newer push to a pull request supersedes the run in progress;
   # runs that may release are never cancelled.
